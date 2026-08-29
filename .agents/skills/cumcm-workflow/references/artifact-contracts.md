@@ -44,9 +44,11 @@ Keep three state classes separate:
 
 ## Result and reproduction rules
 
-An indexed scalar result uses `path#JSON-pointer` to identify its exact executed value. The checker compares the indexed value with that output. Run manifests must preserve hashes for formal inputs and claim-bearing outputs, plus environment, stdout, stderr, exit status, and assertions. Use the Git commit or source revision to identify code when available instead of hashing every source file.
+An indexed scalar result uses `path#JSON-pointer` to identify its exact executed value. The checker compares the indexed value with that output. Classify each run file with `evidence_role`: inputs use `formal_input` or `auxiliary_input`; outputs use `claim_bearing_output`, `intermediate_output`, or `diagnostic_output`. Formal inputs and claim-bearing outputs require hashes. Auxiliary, intermediate, and diagnostic files may omit them. Every indexed result must resolve to an output of its declared run whose role is `claim_bearing_output`. Use the Git commit or source revision to identify code when available instead of hashing every source file.
 
 Hash comparison is automatic. A digest mismatch remains blocking for official sources, formal run inputs, claim-bearing outputs, and frozen delivery files. Byte-size mismatch is stale metadata and produces a warning because a matching SHA-256 already establishes byte identity. Editing-stage figure drift also produces a warning; the final figure becomes blocking when it is listed in the delivery manifest. Logs, caches, temporary files, and LaTeX auxiliary files do not need hashes.
+
+For backward compatibility, a v0.2 run record without `evidence_role` is interpreted conservatively: an input defaults to `formal_input` and an output defaults to `claim_bearing_output`. Existing v0.2 manifests therefore remain valid and strict; new or edited manifests should declare the role explicitly.
 
 `reproduced` is reserved for an isolated rerun with preserved inputs, environment, logs, outputs, hashes, and a claim-specific comparison. Map the legacy v0.1 status `supported` to `supported_not_reproduced`, never to `reproduced`.
 

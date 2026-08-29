@@ -534,6 +534,8 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
         if capability_id not in capability_ids:
             findings.append(finding("RUN-E003", "error", "structural", "computation", rel_path, f"run names unknown capability: {capability_id}", related_ids=[str(capability_id)]))
     for kind in ("inputs", "outputs"):
+        default_role = "formal_input" if kind == "inputs" else "claim_bearing_output"
+        required_hash_roles = {"formal_input", "claim_bearing_output"}
         values = data.get(kind)
         if not isinstance(values, list) or (kind == "outputs" and not values):
             findings.append(finding("RUN-E004", "error", "execution", "computation", rel_path, f"{kind} must be a {'nonempty ' if kind == 'outputs' else ''}list"))
@@ -546,8 +548,15 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
             if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
                 findings.append(finding("RUN-E006", "error", "execution", "computation", rel_path, f"missing or empty {kind[:-1]}: {entry.get('path')}"))
                 continue
-            if entry.get("sha256") != sha256(file_path):
-                findings.append(finding("RUN-E007", "error", "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
+            role = entry.get("evidence_role") or default_role
+            recorded_hash = entry.get("sha256")
+            if role in required_hash_roles:
+                if not nonempty(recorded_hash):
+                    findings.append(finding("RUN-E015", "error", "execution", "computation", rel_path, f"required hash is missing for {role}: {entry.get('path')}"))
+                elif recorded_hash != sha256(file_path):
+                    findings.append(finding("RUN-E007", "error", "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
+            elif nonempty(recorded_hash) and recorded_hash != sha256(file_path):
+                findings.append(finding("RUN-W007", "warning", "execution", "computation", rel_path, f"optional hash is stale for {role}: {entry.get('path')}"))
             if entry.get("size") != file_path.stat().st_size:
                 findings.append(finding("RUN-W013", "warning", "execution", "computation", rel_path, f"size metadata is stale for {kind[:-1]}: {entry.get('path')}"))
     for log_name in ("stdout_path", "stderr_path"):
@@ -577,7 +586,13 @@ def resolve_json_pointer(data: Any, pointer: str) -> tuple[Any, bool]:
     return current, True
 
 
-def check_results(data: Any, root: Path, run_ids: set[str], path: str) -> list[Finding]:
+def check_results(
+    data: Any,
+    root: Path,
+    run_ids: set[str],
+    run_output_roles: dict[str, dict[str, str]],
+    path: str,
+) -> list[Finding]:
     findings = check_envelope(data, "results_index", "computation", path)
     if not isinstance(data, dict):
         return findings
@@ -596,6 +611,12 @@ def check_results(data: Any, root: Path, run_ids: set[str], path: str) -> list[F
             findings.append(finding("RESULT-E008", "error", "execution", "computation", path, f"{ident} output_locator must be path#JSON-pointer", related_ids=[ident]))
             continue
         rel, pointer = locator.split("#", 1)
+        run_id = result.get("run_id")
+        declared_outputs = run_output_roles.get(str(run_id), {})
+        if rel not in declared_outputs:
+            findings.append(finding("RESULT-E014", "error", "execution", "computation", path, f"{ident} locator is not a declared output of run {run_id}: {rel}", related_ids=[ident, str(run_id)]))
+        elif declared_outputs[rel] != "claim_bearing_output":
+            findings.append(finding("RESULT-E015", "error", "execution", "computation", path, f"{ident} locator must reference a claim_bearing_output: {rel}", related_ids=[ident, str(run_id)]))
         output_path = safe_project_path(root, rel)
         if output_path is None or not output_path.is_file():
             findings.append(finding("RESULT-E009", "error", "execution", "computation", path, f"{ident} output file is missing: {rel}", related_ids=[ident]))
@@ -880,6 +901,7 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
         findings.extend(check_cross_question(contracts["cross_question"], subproblem_ids, CONTRACT_PATHS["cross_question"]))
 
     run_ids: set[str] = set()
+    run_output_roles: dict[str, dict[str, str]] = {}
     executed_capability_ids: set[str] = set()
     run_count = 0
     if STAGES.index(stage) >= STAGES.index("computation"):
@@ -899,6 +921,11 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
                     findings.append(finding("RUN-E011", "error", "structural", "computation", rel, f"duplicate run ID: {run['run_id']}"))
                 run_ids.add(run["run_id"])
                 executed_capability_ids.update(str(value) for value in as_list(run.get("capability_ids")))
+                run_output_roles[run["run_id"]] = {
+                    str(entry.get("path")): str(entry.get("evidence_role") or "claim_bearing_output")
+                    for entry in as_list(run.get("outputs"))
+                    if isinstance(entry, dict) and nonempty(entry.get("path"))
+                }
             findings.extend(check_run(run, root, rel, capability_ids))
         if "capabilities" in contracts and isinstance(contracts["capabilities"], dict):
             for capability in as_list(contracts["capabilities"].get("capabilities")):
@@ -919,7 +946,7 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
                     )
     if "results" in contracts:
         findings.extend(check_schema(contracts["results"], "results", "computation", CONTRACT_PATHS["results"]))
-        findings.extend(check_results(contracts["results"], root, run_ids, CONTRACT_PATHS["results"]))
+        findings.extend(check_results(contracts["results"], root, run_ids, run_output_roles, CONTRACT_PATHS["results"]))
         result_ids = ids(contracts["results"].get("results"), "result_id") if isinstance(contracts["results"], dict) else set()
         if "capabilities" in contracts and isinstance(contracts["capabilities"], dict):
             for capability in as_list(contracts["capabilities"].get("capabilities")):

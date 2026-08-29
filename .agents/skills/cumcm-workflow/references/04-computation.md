@@ -8,7 +8,7 @@
 - `runs/<run-id>/outputs/`
 - `results/RESULTS_INDEX.json`
 
-Run the actual code. Record the command, working directory, start and finish times, exit status, environment, dependencies, seeds, hashes for formal inputs, and hashes for claim-bearing machine-readable outputs. Prefer the Git commit or source revision for code identity instead of hashing every source file.
+Run the actual code. Record the command, working directory, start and finish times, exit status, environment, dependencies, and seeds. Mark result-affecting inputs as `formal_input` and paper- or claim-bearing machine-readable outputs as `claim_bearing_output`; both require hashes. Mark non-result-affecting inputs as `auxiliary_input`, transient outputs as `intermediate_output`, and troubleshooting artifacts as `diagnostic_output`; these may omit hashes. Prefer the Git commit or source revision for code identity instead of hashing every source file.
 
 Keep raw executed outputs immutable. Create derived tables or summaries separately and record their source run. Do not silently overwrite a previous run.
 
@@ -18,4 +18,4 @@ When simulation is required, record the generator, parameter source, seed, numbe
 
 Approximate optimization must report termination reason, incumbent objective, bound or gap when available, and repeated-seed stability when relevant.
 
-Hash checks are automatic. Missing or empty run files and hash drift in formal inputs or claim-bearing outputs remain errors. A stale byte-size field is a warning. Stdout, stderr, caches, temporary files, and derived presentation files do not need separate hashes unless they become formal evidence or delivery artifacts.
+Hash checks are automatic. Missing or empty run files and hash drift in formal inputs or claim-bearing outputs remain errors. An indexed result may point only to a declared `claim_bearing_output`. A stale byte-size field is a warning. Stdout, stderr, caches, temporary files, and derived presentation files do not need separate hashes unless they become formal evidence or delivery artifacts. For an older v0.2 record with no role, inputs and outputs default to the two strict roles.

@@ -16,12 +16,56 @@
     "finished_at": {"type": "string", "minLength": 1},
     "exit_code": {"type": "integer"},
     "status": {"enum": ["completed", "failed", "interrupted"]},
-    "inputs": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/file_record"}},
-    "outputs": {"type": "array", "minItems": 1, "items": {"$ref": "common.schema.json#/$defs/file_record"}},
+    "inputs": {"type": "array", "items": {"$ref": "#/$defs/input_file_record"}},
+    "outputs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/output_file_record"}},
     "environment": {"type": "object"},
     "stdout_path": {"type": "string", "minLength": 1},
     "stderr_path": {"type": "string", "minLength": 1},
     "assertions": {"type": "array"},
     "parent_run_id": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "input_file_record": {
+      "type": "object",
+      "required": ["path", "size", "media_type"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string"},
+        "evidence_role": {"enum": ["formal_input", "auxiliary_input"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"evidence_role": {"const": "formal_input"}},
+            "required": ["evidence_role"]
+          },
+          "then": {"required": ["sha256"]}
+        }
+      ],
+      "additionalProperties": true
+    },
+    "output_file_record": {
+      "type": "object",
+      "required": ["path", "size", "media_type"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string"},
+        "evidence_role": {"enum": ["claim_bearing_output", "intermediate_output", "diagnostic_output"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"evidence_role": {"const": "claim_bearing_output"}},
+            "required": ["evidence_role"]
+          },
+          "then": {"required": ["sha256"]}
+        }
+      ],
+      "additionalProperties": true
+    }
   }
 }

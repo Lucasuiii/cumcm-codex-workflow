@@ -200,6 +200,7 @@ def build_valid_project(root: Path) -> None:
             "inputs": [
                 {
                     "path": "problem/official/problem.txt",
+                    "evidence_role": "formal_input",
                     "sha256": digest(source_bytes),
                     "size": len(source_bytes),
                     "media_type": "text/plain",
@@ -208,6 +209,7 @@ def build_valid_project(root: Path) -> None:
             "outputs": [
                 {
                     "path": "runs/RUN-Q1-001/outputs/result.json",
+                    "evidence_role": "claim_bearing_output",
                     "sha256": digest(output_bytes),
                     "size": len(output_bytes),
                     "media_type": "application/json",
@@ -425,6 +427,88 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["RUN-W013"].severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+    def test_auxiliary_input_and_intermediate_output_may_omit_hashes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            auxiliary = root / "runs" / "RUN-Q1-001" / "notes.txt"
+            intermediate = root / "runs" / "RUN-Q1-001" / "outputs" / "preview.txt"
+            auxiliary.write_text("non-result-affecting note\n", encoding="utf-8")
+            intermediate.write_text("presentation preview\n", encoding="utf-8")
+            path = root / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["inputs"].append(
+                {
+                    "path": "runs/RUN-Q1-001/notes.txt",
+                    "evidence_role": "auxiliary_input",
+                    "size": auxiliary.stat().st_size,
+                    "media_type": "text/plain",
+                }
+            )
+            data["outputs"].append(
+                {
+                    "path": "runs/RUN-Q1-001/outputs/preview.txt",
+                    "evidence_role": "intermediate_output",
+                    "size": intermediate.stat().st_size,
+                    "media_type": "text/plain",
+                }
+            )
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+    def test_legacy_v02_run_records_without_roles_remain_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            path = root / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["inputs"][0].pop("evidence_role")
+            data["outputs"][0].pop("evidence_role")
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+            data["outputs"][0].pop("sha256")
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            self.assertIn("RUN-E015", {item.rule_id for item in findings})
+
+    def test_indexed_result_must_use_claim_bearing_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            path = root / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["outputs"][0]["evidence_role"] = "intermediate_output"
+            data["outputs"][0].pop("sha256")
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            self.assertIn("RESULT-E015", {item.rule_id for item in findings})
+
+    def test_stale_optional_hash_is_warning_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            intermediate = root / "runs" / "RUN-Q1-001" / "outputs" / "preview.txt"
+            intermediate.write_text("presentation preview\n", encoding="utf-8")
+            path = root / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["outputs"].append(
+                {
+                    "path": "runs/RUN-Q1-001/outputs/preview.txt",
+                    "evidence_role": "intermediate_output",
+                    "sha256": "0" * 64,
+                    "size": intermediate.stat().st_size,
+                    "media_type": "text/plain",
+                }
+            )
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["RUN-W007"].severity, "warning")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_figure_hash_drift_is_warning_during_paper_editing(self):

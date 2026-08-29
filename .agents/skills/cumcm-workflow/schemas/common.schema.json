@@ -47,17 +47,6 @@
         "ambiguous",
         "not_applicable"
       ]
-    },
-    "file_record": {
-      "type": "object",
-      "required": ["path", "sha256", "size", "media_type"],
-      "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "size": {"type": "integer", "minimum": 0},
-        "media_type": {"type": "string"}
-      },
-      "additionalProperties": true
     }
   }
 }

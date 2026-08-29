@@ -20,7 +20,7 @@ Create a reproducible contest project whose conclusions remain traceable to offi
 
 | Stage | Reference | Human gate |
 |---|---|---|
-| `intake` | [01-intake.md](references/01-intake.md) | no |
+| `intake` | [01-intake.md](references/01-intake.md) | confirm the official input set and source-manifest review |
 | `problem-analysis` | [02-problem-analysis.md](references/02-problem-analysis.md) | approve facts, interpretation, and capabilities |
 | `model-design` | [03-model-design.md](references/03-model-design.md) | choose model, dependencies, and scope |
 | `computation` | [04-computation.md](references/04-computation.md) | approve preserved runs and indexed results |

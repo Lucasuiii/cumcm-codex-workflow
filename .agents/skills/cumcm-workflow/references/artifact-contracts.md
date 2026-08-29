@@ -44,7 +44,9 @@ Keep three state classes separate:
 
 ## Result and reproduction rules
 
-An indexed scalar result uses `path#JSON-pointer` to identify its exact executed value. The checker compares the indexed value with that output. Run manifests must preserve input and output hashes, environment, stdout, stderr, exit status, and assertions.
+An indexed scalar result uses `path#JSON-pointer` to identify its exact executed value. The checker compares the indexed value with that output. Run manifests must preserve hashes for formal inputs and claim-bearing outputs, plus environment, stdout, stderr, exit status, and assertions. Use the Git commit or source revision to identify code when available instead of hashing every source file.
+
+Hash comparison is automatic. A digest mismatch remains blocking for official sources, formal run inputs, claim-bearing outputs, and frozen delivery files. Byte-size mismatch is stale metadata and produces a warning because a matching SHA-256 already establishes byte identity. Editing-stage figure drift also produces a warning; the final figure becomes blocking when it is listed in the delivery manifest. Logs, caches, temporary files, and LaTeX auxiliary files do not need hashes.
 
 `reproduced` is reserved for an isolated rerun with preserved inputs, environment, logs, outputs, hashes, and a claim-specific comparison. Map the legacy v0.1 status `supported` to `supported_not_reproduced`, never to `reproduced`.
 

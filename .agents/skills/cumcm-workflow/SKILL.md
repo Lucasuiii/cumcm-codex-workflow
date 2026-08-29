@@ -35,7 +35,8 @@ Create a reproducible contest project whose conclusions remain traceable to offi
 - Preserve raw inputs. Write generated artifacts into separate stage directories.
 - Do not advance past a human gate without explicit approval.
 - Do not invent observed data. Mark genuine simulations as `simulated` and record their generator and seed.
-- Run code before citing its output. Preserve commands, exit status, logs, environment, and output hashes.
+- Run code before citing its output. Preserve commands, exit status, logs, environment, and hashes for formal inputs and claim-bearing outputs.
+- Let tools record and compare digests; never require a person to inspect or confirm a 64-character hash manually.
 - Link sources, facts, capabilities, model components, runs, results, claims, and figures with stable IDs rather than prose matching.
 - State the feasible set, policy class, approximation, and certificate behind every optimality claim.
 - Paper text may summarize validated artifacts but may not create new numerical results.

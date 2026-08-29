@@ -31,8 +31,5 @@ runs/
 *.pem
 license.json
 
-# Explicitly exclude local Modex research assets
-modex_拆解/
-Modex-MH-Agent-可读资产/
 *.enc
 *.pyd

@@ -39,6 +39,8 @@ Version 0.2 provides:
 
 Final `model-xray` auditing remains an explicit, deferred hook rather than an automatic step.
 
+Hash checks are artifact-specific: official inputs, formal run evidence, and frozen delivery files remain blocking; editing-stage figure drift and redundant byte-size mismatches are warnings. Digests are recorded and compared automatically, not manually inspected.
+
 See [docs/v0.2-design.md](docs/v0.2-design.md) for contract fields, evidence boundaries, profile behavior, migration rules, and release criteria.
 
 ## Validate a project

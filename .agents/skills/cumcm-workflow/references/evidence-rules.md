@@ -18,7 +18,7 @@ Claims of global optimality, unbiasedness, equivalence, causality, statistical s
 
 ## Profiles
 
-`strict` and `sprint` differ in exploratory breadth and polish. Neither profile may demote source integrity, execution, hash, contradiction, cross-question consistency, result trace, or claim-evidence errors. Sprint may defer alternative-model comparison and nonessential figures only when the corresponding strong claim is also removed or narrowed.
+`strict` and `sprint` differ in exploratory breadth and polish. Neither profile may demote official-source hashes, formal run input or claim-bearing output hashes, frozen delivery hashes, execution, contradiction, cross-question consistency, result trace, or claim-evidence errors. Editing-stage figure hash drift and redundant byte-size mismatches are warnings in both profiles. Sprint may defer alternative-model comparison and nonessential figures only when the corresponding strong claim is also removed or narrowed.
 
 ## Conflict handling
 

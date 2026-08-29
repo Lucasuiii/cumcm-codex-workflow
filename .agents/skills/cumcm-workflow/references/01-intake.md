@@ -14,4 +14,6 @@ Create a read-only inventory of the official problem, attachments, and current c
 
 Run `cumcm_check.py --stage intake`. Passing proves source identity and the declared inventory, not that the expected-source list is complete; a human must confirm that list.
 
+Let the inventory and validator record and compare SHA-256 automatically. The reviewer confirms the source list and origin, not the digest characters. A hash mismatch blocks intake; a byte-size mismatch is only stale metadata and should be refreshed.
+
 Do not run code or macros embedded in unfamiliar inputs during intake.

@@ -388,7 +388,7 @@ def check_sources(data: Any, root: Path, path: str) -> list[Finding]:
         if source.get("sha256") != sha256(file_path):
             findings.append(finding("SOURCE-E008", "error", "structural", "intake", path, f"source hash mismatch: {rel}", related_ids=[ident]))
         if source.get("size") is not None and source.get("size") != file_path.stat().st_size:
-            findings.append(finding("SOURCE-E009", "error", "structural", "intake", path, f"source size mismatch: {rel}", related_ids=[ident]))
+            findings.append(finding("SOURCE-W009", "warning", "structural", "intake", path, f"source size metadata is stale: {rel}", related_ids=[ident]))
         if source.get("mutable") is not False and source.get("origin") in {"official", "organizer_attachment"}:
             findings.append(finding("SOURCE-E010", "error", "semantic", "intake", path, f"official source must declare mutable=false: {ident}"))
     return findings
@@ -549,7 +549,7 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
             if entry.get("sha256") != sha256(file_path):
                 findings.append(finding("RUN-E007", "error", "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
             if entry.get("size") != file_path.stat().st_size:
-                findings.append(finding("RUN-E013", "error", "execution", "computation", rel_path, f"size mismatch for {kind[:-1]}: {entry.get('path')}"))
+                findings.append(finding("RUN-W013", "warning", "execution", "computation", rel_path, f"size metadata is stale for {kind[:-1]}: {entry.get('path')}"))
     for log_name in ("stdout_path", "stderr_path"):
         log_path = safe_project_path(root, data.get(log_name))
         if log_path is None or not log_path.is_file():
@@ -704,7 +704,7 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
         if figure_path is None or not figure_path.is_file() or figure_path.stat().st_size == 0:
             findings.append(finding("FIGURE-E010", "error", "visual", "paper", path, f"missing or empty figure file: {figure.get('path')}", related_ids=[ident]))
         elif figure.get("sha256") != sha256(figure_path):
-            findings.append(finding("FIGURE-E011", "error", "structural", "paper", path, f"figure hash mismatch: {figure.get('path')}", related_ids=[ident]))
+            findings.append(finding("FIGURE-W011", "warning", "structural", "paper", path, f"figure changed since its manifest entry was recorded: {figure.get('path')}", related_ids=[ident]))
         for result_id in as_list(figure.get("result_ids")):
             if result_id not in result_ids:
                 findings.append(finding("FIGURE-E006", "error", "structural", "paper", path, f"{ident} names unknown result: {result_id}", related_ids=[ident, str(result_id)]))
@@ -739,7 +739,7 @@ def check_delivery(data: Any, root: Path, path: str, profile: str) -> list[Findi
         if item.get("sha256") != sha256(file_path):
             findings.append(finding("DELIVERY-E007", "error", "structural", "delivery", path, f"delivery hash mismatch: {rel}"))
         if item.get("size") != file_path.stat().st_size:
-            findings.append(finding("DELIVERY-E008", "error", "structural", "delivery", path, f"delivery size mismatch: {rel}"))
+            findings.append(finding("DELIVERY-W008", "warning", "structural", "delivery", path, f"delivery size metadata is stale: {rel}"))
     compile_record = data.get("compile")
     if not isinstance(compile_record, dict) or compile_record.get("exit_code") != 0 or not compile_record.get("command"):
         findings.append(finding("DELIVERY-E009", "error", "execution", "delivery", path, "successful compile record is required"))

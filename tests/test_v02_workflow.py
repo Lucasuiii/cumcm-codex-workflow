@@ -368,6 +368,19 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             self.assertIn("SOURCE-E008", {item.rule_id for item in findings})
 
+    def test_source_size_mismatch_is_warning_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            path = root / "problem" / "SOURCE_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["sources"][0]["size"] += 1
+            write_json(root, "problem/SOURCE_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["SOURCE-W009"].severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
     def test_fact_cannot_cite_an_unknown_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -400,6 +413,29 @@ class V02WorkflowTests(unittest.TestCase):
             write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
             findings, _ = self.run_check(root)
             self.assertIn("RUN-E007", {item.rule_id for item in findings})
+
+    def test_run_size_mismatch_is_warning_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            path = root / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["outputs"][0]["size"] += 1
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["RUN-W013"].severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+    def test_figure_hash_drift_is_warning_during_paper_editing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            (root / "figures" / "policy-cost.png").write_bytes(b"edited figure bytes")
+            findings, _ = check_project(root, "paper", "strict")
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["FIGURE-W011"].severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_figure_cannot_use_unindexed_result(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -519,6 +555,39 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root, profile="sprint")
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["DELIVERY-E007"].severity, "error")
+
+    def test_final_figure_hash_is_hard_when_frozen_for_delivery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            delivery_path = root / "delivery" / "DELIVERY_MANIFEST.json"
+            delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+            figure_path = root / "figures" / "policy-cost.png"
+            delivery["files"].append(
+                {
+                    "path": "figures/policy-cost.png",
+                    "role": "final_figure",
+                    "sha256": "0" * 64,
+                    "size": figure_path.stat().st_size,
+                }
+            )
+            write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
+            findings, _ = self.run_check(root)
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["DELIVERY-E007"].severity, "error")
+
+    def test_delivery_size_mismatch_is_warning_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            delivery_path = root / "delivery" / "DELIVERY_MANIFEST.json"
+            delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
+            delivery["files"][0]["size"] += 1
+            write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
+            findings, _ = self.run_check(root)
+            finding_by_rule = {item.rule_id: item for item in findings}
+            self.assertEqual(finding_by_rule["DELIVERY-W008"].severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_cross_question_unit_conflict_is_an_error(self):
         with tempfile.TemporaryDirectory() as temp:

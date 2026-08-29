@@ -10,4 +10,4 @@
 | Paper | structural + visual + human | figures are traceable and the reviewer confirms no unindexed results were introduced during writing |
 | Delivery | structural + execution + visual + human | compiled bytes, logs, warnings, hashes, and final review match the delivery manifest |
 
-`strict` and `sprint` may differ in exploration and polish. Both block on source, execution, hash, contradiction, result-trace, cross-question, and claim-evidence errors. The final paper audit hook remains explicit and inactive unless requested.
+`strict` and `sprint` may differ in exploration and polish. Both block on official-source hashes, formal run input and claim-bearing output hashes, frozen delivery hashes, execution, contradiction, result-trace, cross-question, and claim-evidence errors. Editing-stage figure drift and redundant byte-size mismatches are warnings. The final paper audit hook remains explicit and inactive unless requested.

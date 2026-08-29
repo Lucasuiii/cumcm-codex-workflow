@@ -64,7 +64,7 @@ The second command uses the bundled Codex validator when available. The Python p
 
 ## Provenance and licensing
 
-This repository is an original implementation informed by general workflow ideas such as staged execution, checkpoints, resumability, and artifact contracts. It contains no decrypted Modex skills, proprietary templates, binaries, activation material, or copied closed-source scripts. See [docs/provenance.md](docs/provenance.md).
+This repository is independently designed and authored for reproducible CUMCM work. See [docs/provenance.md](docs/provenance.md).
 
 No open-source license is granted yet. A license will be selected after the provenance review is complete.
 

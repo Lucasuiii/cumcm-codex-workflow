@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# Generated contest workspaces and potentially large/sensitive inputs
+workspaces/
+user_data/
+runs/
+
+# LaTeX build products
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# Secrets and local configuration
+.env
+.env.*
+*.key
+*.pem
+license.json
+
+# Explicitly exclude local Modex research assets
+modex_拆解/
+Modex-MH-Agent-可读资产/
+*.enc
+*.pyd

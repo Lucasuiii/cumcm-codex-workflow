@@ -1,0 +1,6 @@
+interface:
+  display_name: "CUMCM Workflow"
+  short_description: "可复现的国赛建模、计算、写作与交付流程"
+  default_prompt: "Use $cumcm-workflow to start or resume a reproducible CUMCM project from the official problem files."
+policy:
+  allow_implicit_invocation: true

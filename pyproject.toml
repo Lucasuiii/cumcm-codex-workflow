@@ -1,0 +1,8 @@
+[project]
+name = "cumcm-codex-workflow"
+version = "0.1.0"
+description = "Codex-native reproducible workflow for CUMCM"
+requires-python = ">=3.10"
+
+[tool.unittest]
+start-directory = "tests"

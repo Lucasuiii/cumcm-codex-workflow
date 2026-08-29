@@ -13,6 +13,8 @@ General software and workflow concepts may inform the design, including:
 - deterministic structural validators;
 - separate computation, visualization, and writing stages.
 
+Version 0.2 was independently implemented around versioned JSON contracts, stable cross-artifact IDs, exact result locators, local deterministic checks, and public-safe synthetic regressions. Functional similarity to another workflow is not evidence of copied implementation.
+
 ## Excluded material
 
 The repository must not contain:

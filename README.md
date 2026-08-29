@@ -2,7 +2,7 @@
 
 An evidence-bounded, reproducible, Codex-native workflow for the China Undergraduate Mathematical Contest in Modeling (CUMCM).
 
-> Status: early public scaffold. Do not treat a completed workflow as proof that a model or paper is correct.
+> Status: v0.2 evidence-contract implementation. Do not treat a passing workflow as proof that a model or paper is correct.
 
 ## Goals
 
@@ -23,18 +23,34 @@ The repository contains one repo-scoped Codex skill at
 `.agents/skills/cumcm-workflow`. Invoke it explicitly with `$cumcm-workflow`,
 or let Codex select it when the task clearly concerns a CUMCM project.
 
-## Current scope
+## Version 0.2
 
-Version 0.1 provides:
+Version 0.2 provides:
 
 - a concise workflow router;
 - stage-specific references;
-- artifact and evidence contracts;
-- deterministic validators for inventories, state, facts, results, claims, and delivery;
+- eleven versioned JSON Schemas covering workflow state and the ten evidence artifacts;
+- a vertical evidence chain from official facts through capabilities, models, runs, results, claims, and figures;
+- deterministic checks for local schemas, hashes, source traceability, model ownership, real run outputs, exact result locators, cross-question consistency, strong-claim certificates, figure provenance, and delivery;
+- `strict` and `sprint` profiles that share non-negotiable evidence gates;
+- stable diagnostic IDs and a machine-readable validation report;
 - a minimal XeLaTeX template;
-- a regression contract based on a known policy-scope failure mode.
+- executable regressions based on a known policy-scope failure mode.
 
-Final paper auditing is intentionally deferred. No `model-xray` integration is included yet.
+Final `model-xray` auditing remains an explicit, deferred hook rather than an automatic step.
+
+See [docs/v0.2-design.md](docs/v0.2-design.md) for contract fields, evidence boundaries, profile behavior, migration rules, and release criteria.
+
+## Validate a project
+
+```bash
+python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
+  --project /path/to/project \
+  --stage validation \
+  --profile strict
+```
+
+The command writes `.cumcm/validation-report.json`. Exit code `0` means the implemented structural, execution, numerical-trace, semantic-contract, and visual-review gates found no errors. It is not a mathematical correctness certificate.
 
 ## Quick validation
 
@@ -44,13 +60,13 @@ python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   .agents/skills/cumcm-workflow
 ```
 
-The second command uses the bundled Codex validator when available.
+The second command uses the bundled Codex validator when available. The Python package requires Python 3.10+ and `jsonschema>=4.18`.
 
 ## Provenance and licensing
 
 This repository is an original implementation informed by general workflow ideas such as staged execution, checkpoints, resumability, and artifact contracts. It contains no decrypted Modex skills, proprietary templates, binaries, activation material, or copied closed-source scripts. See [docs/provenance.md](docs/provenance.md).
 
-No open-source license is granted in this initial scaffold. A license will be selected after the provenance review is complete.
+No open-source license is granted yet. A license will be selected after the provenance review is complete.
 
 ## Safety boundary
 

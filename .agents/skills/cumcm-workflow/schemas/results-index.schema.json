@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/results-index.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["results"],
+  "properties": {
+    "artifact_type": {"const": "results_index"},
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["result_id", "name", "value", "unit", "precision", "display_rounding", "run_id", "output_locator", "scope", "evidence_state", "validation_checks"],
+        "properties": {
+          "result_id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "value": {},
+          "unit": {"type": "string"},
+          "precision": {"type": ["number", "string", "null"]},
+          "display_rounding": {"type": ["integer", "string", "null"]},
+          "run_id": {"type": "string", "minLength": 1},
+          "output_locator": {"type": "string", "minLength": 1},
+          "scope": {"type": "string", "minLength": 1},
+          "evidence_state": {"$ref": "common.schema.json#/$defs/evidence_state"},
+          "validation_checks": {"type": "array"},
+          "supersedes": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/common.schema.json",
+  "$defs": {
+    "producer": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {"enum": ["human", "codex", "script", "external_tool"]},
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "review": {
+      "type": "object",
+      "required": ["decision", "reviewer", "reviewed_at", "scope", "notes"],
+      "properties": {
+        "decision": {"enum": ["unreviewed", "accepted", "revision_requested"]},
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at": {"type": ["string", "null"]},
+        "scope": {"type": ["string", "null"]},
+        "notes": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "envelope": {
+      "type": "object",
+      "required": ["schema_version", "artifact_type", "project_id", "updated_at", "producer", "review"],
+      "properties": {
+        "schema_version": {"const": "0.2.0"},
+        "artifact_type": {"type": "string", "minLength": 1},
+        "project_id": {"type": "string", "minLength": 1},
+        "updated_at": {"type": "string", "minLength": 1},
+        "producer": {"$ref": "#/$defs/producer"},
+        "review": {"$ref": "#/$defs/review"}
+      }
+    },
+    "evidence_state": {
+      "enum": [
+        "not_checked",
+        "missing_evidence",
+        "supported_not_reproduced",
+        "reproduced",
+        "partially_supported",
+        "contradicted",
+        "ambiguous",
+        "not_applicable"
+      ]
+    },
+    "file_record": {
+      "type": "object",
+      "required": ["path", "sha256", "size", "media_type"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

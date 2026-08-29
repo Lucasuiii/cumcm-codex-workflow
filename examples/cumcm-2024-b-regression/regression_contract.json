@@ -1,6 +1,7 @@
 {
   "name": "CUMCM 2024 B policy-scope regression",
   "purpose": "Ensure the workflow does not confuse a restricted fixed-policy enumeration with a globally optimal feedback policy.",
+  "workflow_version": "0.2.0",
   "checks": [
     {
       "id": "scope-1",
@@ -13,6 +14,10 @@
     {
       "id": "scope-3",
       "requirement": "Executed dynamic and fixed-policy outputs remain separate and traceable."
+    },
+    {
+      "id": "scope-4",
+      "requirement": "The corrected scoped claim passes, while an unsupported global-optimality claim emits CLAIM-E011."
     }
   ],
   "contains_official_problem_text": false

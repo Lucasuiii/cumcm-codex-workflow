@@ -11,4 +11,6 @@ Check:
 - every delivered file against `DELIVERY_MANIFEST.json`;
 - hashes of final code, results, figures, and PDF.
 
-Render and inspect pages where formulas, dense tables, or figures may fail visually. Record final audit as deferred in version 0.1. Submission remains a user-controlled action.
+Record the selected profile, exact compile command and engine, exit code, log, warnings, page count, final files and hashes, accepted exceptions, excluded sensitive files, and final human review in `delivery/DELIVERY_MANIFEST.json`.
+
+Render and inspect pages where formulas, dense tables, or figures may fail visually. Record final `model-xray` audit as deferred unless explicitly requested. Submission remains a user-controlled action.

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/problem-facts.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["subproblems", "facts", "definitions", "ambiguities", "assumptions"],
+  "properties": {
+    "artifact_type": {"const": "problem_facts"},
+    "subproblems": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["subproblem_id", "request", "expected_output"],
+        "properties": {
+          "subproblem_id": {"type": "string", "minLength": 1},
+          "request": {"type": "string", "minLength": 1},
+          "expected_output": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "facts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["fact_id", "statement", "source_id", "location"],
+        "properties": {
+          "fact_id": {"type": "string", "minLength": 1},
+          "statement": {"type": "string", "minLength": 1},
+          "source_id": {"type": "string", "minLength": 1},
+          "location": {"type": "string", "minLength": 1},
+          "raw_value": {},
+          "normalized_value": {},
+          "unit": {"type": ["string", "null"]},
+          "extraction_method": {"enum": ["native_text", "rendered_visual", "ocr", "manual_transcription"]},
+          "render_verified": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "definitions": {"type": "array"},
+    "ambiguities": {"type": "array"},
+    "assumptions": {"type": "array"}
+  }
+}

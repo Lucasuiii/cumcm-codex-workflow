@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/cross-question-ledger.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["shared_items"],
+  "properties": {
+    "artifact_type": {"const": "cross_question_ledger"},
+    "shared_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["shared_id", "name", "producer", "consumers", "definition", "unit", "transformation", "uncertainty_propagation", "authoritative_artifact", "conflict_status"],
+        "properties": {
+          "shared_id": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "producer": {"type": "string", "minLength": 1},
+          "consumers": {"type": "array", "items": {"type": "string"}},
+          "definition": {"type": "string", "minLength": 1},
+          "unit": {"type": "string"},
+          "transformation": {"type": ["string", "null"]},
+          "uncertainty_propagation": {"type": ["string", "null"]},
+          "authoritative_artifact": {"type": "string", "minLength": 1},
+          "conflict_status": {"enum": ["clear", "unresolved", "resolved"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

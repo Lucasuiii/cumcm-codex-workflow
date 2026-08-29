@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/delivery-manifest.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["profile", "files", "compile", "unresolved_errors", "accepted_exceptions", "excluded_files", "final_review"],
+  "properties": {
+    "artifact_type": {"const": "delivery_manifest"},
+    "profile": {"enum": ["strict", "sprint"]},
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "role", "sha256", "size"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "compile": {
+      "type": "object",
+      "required": ["command", "engine", "exit_code", "log_path", "warnings", "page_count"],
+      "properties": {
+        "command": {"type": "string", "minLength": 1},
+        "engine": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "log_path": {"type": "string", "minLength": 1},
+        "warnings": {"type": "array"},
+        "page_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "unresolved_errors": {"type": "array"},
+    "accepted_exceptions": {"type": "array"},
+    "excluded_files": {"type": "array"},
+    "final_review": {"$ref": "common.schema.json#/$defs/review"}
+  }
+}

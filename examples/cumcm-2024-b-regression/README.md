@@ -2,4 +2,4 @@
 
 This fixture contains no official problem text, data, paper, or proprietary material. It records one behavioral invariant: optimizing over a fixed homogeneous policy class must not be presented as a global optimum over all feedback policies.
 
-The fixture will become executable only after a public-safe synthetic test case is added.
+The executable synthetic project is constructed in `tests/test_v02_workflow.py`. The tests verify that the scoped claim passes while a global-optimality overclaim without a certificate triggers `CLAIM-E011`. They also exercise source-hash drift, result/output disagreement, cross-question unit conflicts, and Sprint's non-demotion rule.

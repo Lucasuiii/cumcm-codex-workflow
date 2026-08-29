@@ -31,6 +31,20 @@ class ValidatorTests(unittest.TestCase):
             self.assertEqual([r["path"] for r in records], ["problem.pdf"])
             self.assertEqual(records[0]["sha256"], hashlib.sha256(b"official").hexdigest())
 
+    def test_v02_inventory_uses_project_relative_paths_and_source_ids(self):
+        module = load("inventory_artifacts")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            official = root / "problem" / "official"
+            official.mkdir(parents=True)
+            (official / "B.pdf").write_bytes(b"official")
+            output = root / "problem" / "SOURCE_MANIFEST.json"
+            records = module.inventory_v02(official, root, output, "official")
+            self.assertEqual(records[0]["source_id"], "SRC-001")
+            self.assertEqual(records[0]["path"], "problem/official/B.pdf")
+            self.assertEqual(records[0]["media_type"], "application/pdf")
+            self.assertFalse(records[0]["mutable"])
+
     def test_stage_state_accepts_complete_state(self):
         module = load("validate_stage_state")
         data = {

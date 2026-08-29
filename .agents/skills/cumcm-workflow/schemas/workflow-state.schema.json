@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/workflow-state.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["workflow_version", "current_stage", "stages"],
+  "properties": {
+    "artifact_type": {"const": "workflow_state"},
+    "workflow_version": {"const": "0.2.0"},
+    "current_stage": {"enum": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"]},
+    "stages": {
+      "type": "object",
+      "required": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"],
+      "additionalProperties": false,
+      "properties": {
+        "intake": {"$ref": "#/$defs/stage"},
+        "problem-analysis": {"$ref": "#/$defs/stage"},
+        "model-design": {"$ref": "#/$defs/stage"},
+        "computation": {"$ref": "#/$defs/stage"},
+        "validation": {"$ref": "#/$defs/stage"},
+        "paper": {"$ref": "#/$defs/stage"},
+        "delivery": {"$ref": "#/$defs/stage"}
+      }
+    }
+  },
+  "$defs": {
+    "stage": {"enum": ["not_started", "in_progress", "awaiting_review", "passed", "needs_revision", "blocked"]}
+  }
+}

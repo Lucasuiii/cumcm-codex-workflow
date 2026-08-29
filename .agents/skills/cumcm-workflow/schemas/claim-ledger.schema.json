@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/claim-ledger.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["independent_review", "claims"],
+  "properties": {
+    "artifact_type": {"const": "claim_ledger"},
+    "independent_review": {"$ref": "common.schema.json#/$defs/review"},
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "text", "claim_type", "scope", "paper_location", "evidence", "evidence_state", "certificates", "review"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1},
+          "text": {"type": "string", "minLength": 1},
+          "claim_type": {"type": "string", "minLength": 1},
+          "scope": {"type": "string", "minLength": 1},
+          "paper_location": {"type": ["string", "null"]},
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "fact_ids": {"type": "array", "items": {"type": "string"}},
+              "model_ids": {"type": "array", "items": {"type": "string"}},
+              "run_ids": {"type": "array", "items": {"type": "string"}},
+              "result_ids": {"type": "array", "items": {"type": "string"}},
+              "figure_ids": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": false
+          },
+          "evidence_state": {"$ref": "common.schema.json#/$defs/evidence_state"},
+          "certificates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "description", "evidence_ids"],
+              "properties": {
+                "type": {"enum": ["global_optimality", "unbiasedness", "equivalence", "causality", "robustness", "statistical_significance", "reproducibility"]},
+                "description": {"type": "string", "minLength": 1},
+                "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "scope": {"type": ["string", "null"]},
+                "method": {"enum": ["perturbation", "sensitivity", "out_of_sample", "stress_test", "proof", "enumeration", "solver_certificate", "statistical_test", "independent_rerun"]}
+              },
+              "additionalProperties": true
+            }
+          },
+          "review": {"$ref": "common.schema.json#/$defs/review"}
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,30 +1,55 @@
 # Artifact contracts
 
-## Workflow state
+Read this reference when creating, migrating, or validating v0.2 project files. The authoritative field shapes are the JSON Schemas in `../schemas/`.
 
-`.cumcm/state.json` contains `current_stage` and a status for every stage. Valid statuses are `not_started`, `in_progress`, `awaiting_review`, `passed`, `needs_revision`, and `blocked`.
+## Common envelope
 
-## Problem facts
+Every contract declares:
 
-`PROBLEM_FACTS.json` contains:
+- `schema_version: "0.2.0"`;
+- a fixed `artifact_type`;
+- one shared `project_id`;
+- serialization time and producer;
+- a review decision: `unreviewed`, `accepted`, or `revision_requested`.
 
-```json
-{
-  "problem_id": "year-letter",
-  "source_files": ["problem/official.pdf"],
-  "subproblems": [{"id": "Q1", "request": "..."}],
-  "facts": [{"id": "F1", "statement": "...", "source": "problem/official.pdf#page=1"}]
-}
-```
+Automated validators may create or update an artifact, but they may not set a human review to `accepted`.
 
-## Run manifest
+## Stable identifiers
 
-`RUN_MANIFEST.json` identifies a real execution: run ID, command, status, timestamps, inputs, outputs, and exit code. Referenced outputs must exist and be nonempty.
+Use stable IDs such as `SRC-001`, `FACT-Q1-001`, `CAP-Q1-001`, `MODEL-Q1-001`, `RUN-Q1-...`, `RES-Q1-001`, `CLM-Q1-001`, and `FIG-Q1-001`. Once referenced, an ID is immutable even when its prose label changes.
 
-## Claim ledger
+## Canonical paths
 
-`CLAIM_LEDGER.json` contains claims with unique IDs, allowed statuses, scope, and at least one evidence path for supported claims.
+| Contract | Path | Owner |
+|---|---|---|
+| workflow state | `.cumcm/state.json` | intake |
+| source manifest | `problem/SOURCE_MANIFEST.json` | intake |
+| problem facts | `analysis/PROBLEM_FACTS.json` | problem analysis |
+| task capabilities | `analysis/TASK_CAPABILITIES.json` | problem analysis |
+| model contract | `model/MODEL_CONTRACT.json` | model design |
+| cross-question ledger | `model/CROSS_QUESTION_LEDGER.json` | model design |
+| run manifest | `runs/<run-id>/RUN_MANIFEST.json` | computation |
+| results index | `results/RESULTS_INDEX.json` | computation |
+| claim ledger | `validation/CLAIM_LEDGER.json` | validation |
+| figure manifest | `figures/FIGURE_MANIFEST.json` | paper |
+| delivery manifest | `delivery/DELIVERY_MANIFEST.json` | delivery |
 
-## Delivery manifest
+## State vocabularies
 
-`DELIVERY_MANIFEST.json` lists final relative paths and optional SHA-256 hashes. Every listed file must exist and be nonempty.
+Keep three state classes separate:
+
+- workflow lifecycle: `not_started`, `in_progress`, `awaiting_review`, `passed`, `needs_revision`, `blocked`;
+- evidence: `not_checked`, `missing_evidence`, `supported_not_reproduced`, `reproduced`, `partially_supported`, `contradicted`, `ambiguous`, `not_applicable`;
+- review: `unreviewed`, `accepted`, `revision_requested`.
+
+## Result and reproduction rules
+
+An indexed scalar result uses `path#JSON-pointer` to identify its exact executed value. The checker compares the indexed value with that output. Run manifests must preserve input and output hashes, environment, stdout, stderr, exit status, and assertions.
+
+`reproduced` is reserved for an isolated rerun with preserved inputs, environment, logs, outputs, hashes, and a claim-specific comparison. Map the legacy v0.1 status `supported` to `supported_not_reproduced`, never to `reproduced`.
+
+## Migration from v0.1
+
+Keep the seven stage names. Add `workflow_version: "0.2.0"` and the common envelope to state. Preserve v0.1 files in version control or backups, and migrate `TASK_CONTRACT.json` into explicit capabilities without inventing missing acceptance checks, code entry points, or result IDs.
+
+Absent fields are migration findings, not values to infer. Do not mix project IDs. Do not mark a stage passed until every contract owned by that stage has an accepted review.

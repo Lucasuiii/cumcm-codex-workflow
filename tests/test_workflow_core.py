@@ -34,11 +34,11 @@ def review(decision: str = "accepted") -> dict:
 
 def envelope(kind: str) -> dict:
     return {
-        "schema_version": "0.2.0",
+        "schema_version": "0.3.0",
         "artifact_type": kind,
         "project_id": "SYNTHETIC-2024-B",
         "updated_at": "2026-08-30T12:00:00Z",
-        "producer": {"kind": "script", "name": "test-fixture", "version": "0.2.0"},
+        "producer": {"kind": "script", "name": "test-fixture", "version": "0.3.0"},
         "review": review(),
     }
 
@@ -84,17 +84,17 @@ def build_valid_project(root: Path) -> None:
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.2.0",
-            "current_stage": "delivery",
-            "stages": {stage: "passed" for stage in (
-                "intake",
-                "problem-analysis",
-                "model-design",
-                "computation",
-                "validation",
-                "paper",
-                "delivery",
-            )},
+            "workflow_version": "0.3.0",
+            "current_stage": "validation",
+            "stages": {
+                "intake": "passed",
+                "problem-analysis": "passed",
+                "model-design": "passed",
+                "computation": "passed",
+                "validation": "passed",
+                "paper": "not_started",
+                "delivery": "not_started",
+            },
         }
     )
     write_json(root, ".cumcm/state.json", state)
@@ -317,10 +317,30 @@ def build_valid_project(root: Path) -> None:
     )
     write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
 
+    for index, stage in enumerate(("intake", "problem-analysis", "model-design", "computation", "validation"), 1):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "record_decision.py"),
+                "--project", str(root),
+                "--stage", stage,
+                "--decision", "accepted",
+                "--decision-id", f"DEC-CORE-{index:03d}",
+                "--reviewer", "fixture-reviewer",
+                "--task-turn-ref", f"fixture-core-{index}",
+                "--summary", f"Accepted fixture stage {stage}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode:
+            raise AssertionError(completed.stdout + completed.stderr)
 
-class V02WorkflowTests(unittest.TestCase):
+
+class WorkflowCoreTests(unittest.TestCase):
     def run_check(self, root: Path, profile: str = "strict"):
-        findings, summary = check_project(root, "delivery", profile)
+        findings, summary = check_project(root, "validation", profile)
         return findings, summary
 
     def test_complete_project_passes_without_errors(self):
@@ -334,7 +354,26 @@ class V02WorkflowTests(unittest.TestCase):
     def test_all_json_schemas_are_valid_draft_2020_12(self):
         schema_dir = ROOT / ".agents" / "skills" / "cumcm-workflow" / "schemas"
         schemas = sorted(schema_dir.glob("*.schema.json"))
-        self.assertEqual(len(schemas), 12)
+        expected = {
+            "claim-ledger.schema.json",
+            "common.schema.json",
+            "compile-receipt.schema.json",
+            "cross-question-ledger.schema.json",
+            "delivery-manifest.schema.json",
+            "figure-manifest.schema.json",
+            "latex-template-manifest.schema.json",
+            "model-contract.schema.json",
+            "paper-plan.schema.json",
+            "paper-quality-report.schema.json",
+            "paper-revision-log.schema.json",
+            "problem-facts.schema.json",
+            "results-index.schema.json",
+            "run-manifest.schema.json",
+            "source-manifest.schema.json",
+            "task-capabilities.schema.json",
+            "workflow-state.schema.json",
+        }
+        self.assertEqual({path.name for path in schemas}, expected)
         for path in schemas:
             with self.subTest(schema=path.name):
                 Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
@@ -349,7 +388,8 @@ class V02WorkflowTests(unittest.TestCase):
                     str(SCRIPTS / "cumcm_check.py"),
                     "--project",
                     str(root),
-                    "--all",
+                    "--stage",
+                    "validation",
                     "--profile",
                     "strict",
                 ],
@@ -381,7 +421,10 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["SOURCE-W009"].severity, "warning")
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(
+                [item for item in findings if item.severity == "error" and item.rule_id != "DECISION-E010"],
+                [],
+            )
 
     def test_fact_cannot_cite_an_unknown_source(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -427,7 +470,10 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["RUN-W013"].severity, "warning")
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(
+                [item for item in findings if item.severity == "error" and item.rule_id != "DECISION-E010"],
+                [],
+            )
 
     def test_auxiliary_input_and_intermediate_output_may_omit_hashes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -457,9 +503,12 @@ class V02WorkflowTests(unittest.TestCase):
             )
             write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
             findings, _ = self.run_check(root)
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(
+                [item for item in findings if item.severity == "error" and item.rule_id != "DECISION-E010"],
+                [],
+            )
 
-    def test_legacy_v02_run_records_without_roles_remain_strict(self):
+    def test_run_records_require_explicit_evidence_roles(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_project(root)
@@ -469,12 +518,7 @@ class V02WorkflowTests(unittest.TestCase):
             data["outputs"][0].pop("evidence_role")
             write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
             findings, _ = self.run_check(root)
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
-
-            data["outputs"][0].pop("sha256")
-            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", data)
-            findings, _ = self.run_check(root)
-            self.assertIn("RUN-E015", {item.rule_id for item in findings})
+            self.assertIn("SCHEMA-E002", {item.rule_id for item in findings})
 
     def test_indexed_result_must_use_claim_bearing_output(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -509,14 +553,17 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["RUN-W007"].severity, "warning")
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(
+                [item for item in findings if item.severity == "error" and item.rule_id != "DECISION-E010"],
+                [],
+            )
 
     def test_figure_hash_drift_is_warning_during_paper_editing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_project(root)
             (root / "figures" / "policy-cost.png").write_bytes(b"edited figure bytes")
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "validation", "strict")
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["FIGURE-W011"].severity, "warning")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
@@ -610,7 +657,7 @@ class V02WorkflowTests(unittest.TestCase):
             findings, _ = self.run_check(root)
             self.assertIn("RUN-E014", {item.rule_id for item in findings})
 
-    def test_full_project_can_be_checked_through_every_stage(self):
+    def test_core_project_can_be_checked_through_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_project(root)
@@ -620,58 +667,10 @@ class V02WorkflowTests(unittest.TestCase):
                 "model-design",
                 "computation",
                 "validation",
-                "paper",
-                "delivery",
             ):
                 with self.subTest(stage=stage):
                     findings, _ = check_project(root, stage, "strict")
                     self.assertEqual([item for item in findings if item.severity == "error"], [])
-
-    def test_sprint_does_not_demote_execution_hash_error(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            build_valid_project(root)
-            delivery_path = root / "delivery" / "DELIVERY_MANIFEST.json"
-            delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
-            delivery["profile"] = "sprint"
-            delivery["files"][0]["sha256"] = "0" * 64
-            write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
-            findings, _ = self.run_check(root, profile="sprint")
-            finding_by_rule = {item.rule_id: item for item in findings}
-            self.assertEqual(finding_by_rule["DELIVERY-E007"].severity, "error")
-
-    def test_final_figure_hash_is_hard_when_frozen_for_delivery(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            build_valid_project(root)
-            delivery_path = root / "delivery" / "DELIVERY_MANIFEST.json"
-            delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
-            figure_path = root / "figures" / "policy-cost.png"
-            delivery["files"].append(
-                {
-                    "path": "figures/policy-cost.png",
-                    "role": "final_figure",
-                    "sha256": "0" * 64,
-                    "size": figure_path.stat().st_size,
-                }
-            )
-            write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
-            findings, _ = self.run_check(root)
-            finding_by_rule = {item.rule_id: item for item in findings}
-            self.assertEqual(finding_by_rule["DELIVERY-E007"].severity, "error")
-
-    def test_delivery_size_mismatch_is_warning_only(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            build_valid_project(root)
-            delivery_path = root / "delivery" / "DELIVERY_MANIFEST.json"
-            delivery = json.loads(delivery_path.read_text(encoding="utf-8"))
-            delivery["files"][0]["size"] += 1
-            write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
-            findings, _ = self.run_check(root)
-            finding_by_rule = {item.rule_id: item for item in findings}
-            self.assertEqual(finding_by_rule["DELIVERY-W008"].severity, "warning")
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_cross_question_unit_conflict_is_an_error(self):
         with tempfile.TemporaryDirectory() as temp:

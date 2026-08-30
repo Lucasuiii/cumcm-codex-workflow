@@ -1,0 +1,7 @@
+{
+  "template_id": "cumcm-generic-ctex",
+  "template_version": "0.3.0",
+  "engine": "xelatex",
+  "mode": "generic_ctex",
+  "description": "Modular, submission-neutral CTeX scaffold for CUMCM paper development."
+}

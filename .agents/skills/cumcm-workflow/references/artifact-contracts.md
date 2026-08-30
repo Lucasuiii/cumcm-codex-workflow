@@ -1,12 +1,12 @@
 # Artifact contracts
 
-Read this reference when creating, migrating, or validating v0.2 project files. The authoritative field shapes are the JSON Schemas in `../schemas/`.
+Read this reference when creating or validating v0.3 project files. The authoritative field shapes are the JSON Schemas in `../schemas/`.
 
 ## Common envelope
 
 Every contract declares:
 
-- `schema_version: "0.2.0"`;
+- `schema_version` matching the project's supported workflow version;
 - a fixed `artifact_type`;
 - one shared `project_id`;
 - serialization time and producer;
@@ -32,7 +32,21 @@ Use stable IDs such as `SRC-001`, `FACT-Q1-001`, `CAP-Q1-001`, `MODEL-Q1-001`, `
 | results index | `results/RESULTS_INDEX.json` | computation |
 | claim ledger | `validation/CLAIM_LEDGER.json` | validation |
 | figure manifest | `figures/FIGURE_MANIFEST.json` | paper |
+| paper plan | `paper/PAPER_PLAN.json` | paper |
+| LaTeX template manifest | `paper/LATEX_TEMPLATE_MANIFEST.json` | paper |
+| paper quality report | `paper/PAPER_QUALITY_REPORT.json` | paper |
+| paper revision log | `paper/PAPER_REVISION_LOG.json` | paper |
 | delivery manifest | `delivery/DELIVERY_MANIFEST.json` | delivery |
+| compile receipt | `delivery/COMPILE_RECEIPT.json` | delivery |
+| decision log | `.cumcm/decisions.jsonl` | cross-stage |
+
+## Paper and decision contracts
+
+The seven-stage state machine uses paper subcontracts rather than extra top-level stages. `PAPER_PLAN` records the claims-evidence matrix, nine-part per-question argument chain, reference review, figure jobs, and non-binding page budget. `LATEX_TEMPLATE_MANIFEST` inventories the modular source, maps subproblems, declares the engine and official-format review state, and names placeholder markers. `PAPER_QUALITY_REPORT` separates content, layout, and final QA and binds them to exact paper bytes. `PAPER_REVISION_LOG` preserves the first stable draft and quality-triggered revisions. `COMPILE_RECEIPT` preserves machine-readable attempts and binds selected output to the reviewed PDF.
+
+Human approvals are append-only events in `.cumcm/decisions.jsonl`. Create them with `scripts/record_decision.py`; it hashes the current stage-owned artifacts and chains the event to its predecessor. People approve the visible artifact and summary, not a manually inspected digest. Do not put the mutable workflow state in decision scope. An old decision whose scoped artifact changed is stale and blocking.
+
+`cumcm_check.py --gate-mode preflight` returns success only when remaining errors are purely missing human decisions; structural, execution, evidence, hash, claim, and version-binding failures still block. `--gate-mode enforce` also blocks on missing review.
 
 ## State vocabularies
 
@@ -48,12 +62,6 @@ An indexed scalar result uses `path#JSON-pointer` to identify its exact executed
 
 Hash comparison is automatic. A digest mismatch remains blocking for official sources, formal run inputs, claim-bearing outputs, and frozen delivery files. Byte-size mismatch is stale metadata and produces a warning because a matching SHA-256 already establishes byte identity. Editing-stage figure drift also produces a warning; the final figure becomes blocking when it is listed in the delivery manifest. Logs, caches, temporary files, and LaTeX auxiliary files do not need hashes.
 
-For backward compatibility, a v0.2 run record without `evidence_role` is interpreted conservatively: an input defaults to `formal_input` and an output defaults to `claim_bearing_output`. Existing v0.2 manifests therefore remain valid and strict; new or edited manifests should declare the role explicitly.
+Every run input and output must declare `evidence_role`; absent roles are schema errors. `reproduced` is reserved for an isolated rerun with preserved inputs, environment, logs, outputs, hashes, and a claim-specific comparison.
 
-`reproduced` is reserved for an isolated rerun with preserved inputs, environment, logs, outputs, hashes, and a claim-specific comparison. Map the legacy v0.1 status `supported` to `supported_not_reproduced`, never to `reproduced`.
-
-## Migration from v0.1
-
-Keep the seven stage names. Add `workflow_version: "0.2.0"` and the common envelope to state. Preserve v0.1 files in version control or backups, and migrate `TASK_CONTRACT.json` into explicit capabilities without inventing missing acceptance checks, code entry points, or result IDs.
-
-Absent fields are migration findings, not values to infer. Do not mix project IDs. Do not mark a stage passed until every contract owned by that stage has an accepted review.
+Do not mix project IDs. Do not infer absent evidence. Do not mark a stage passed until every contract owned by that stage has an accepted review.

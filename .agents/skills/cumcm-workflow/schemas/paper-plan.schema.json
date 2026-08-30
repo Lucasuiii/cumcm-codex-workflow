@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/paper-plan.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["reference_reviews", "claims_evidence_matrix", "question_argument_chains", "figure_plan", "page_budget"],
+  "properties": {
+    "artifact_type": {"const": "paper_plan"},
+    "reference_reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["reference_id", "source", "quality_reasons", "transferable_lessons", "non_transferable_limits"],
+        "properties": {
+          "reference_id": {"type": "string", "minLength": 1},
+          "source": {"type": "string", "minLength": 1},
+          "quality_reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "transferable_lessons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "non_transferable_limits": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": true
+      }
+    },
+    "claims_evidence_matrix": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "subproblem_id", "planned_sections", "evidence_ids", "status"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1},
+          "subproblem_id": {"type": "string", "minLength": 1},
+          "planned_sections": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "status": {"enum": ["planned", "included", "deferred"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "question_argument_chains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["subproblem_id", "layers"],
+        "properties": {
+          "subproblem_id": {"type": "string", "minLength": 1},
+          "layers": {
+            "type": "object",
+            "required": ["problem_interpretation", "assumptions_boundaries", "variables_parameters", "objective_constraints", "derivation", "algorithm", "results", "validation", "limitations"],
+            "additionalProperties": false,
+            "properties": {
+              "problem_interpretation": {"$ref": "#/$defs/layer"},
+              "assumptions_boundaries": {"$ref": "#/$defs/layer"},
+              "variables_parameters": {"$ref": "#/$defs/layer"},
+              "objective_constraints": {"$ref": "#/$defs/layer"},
+              "derivation": {"$ref": "#/$defs/layer"},
+              "algorithm": {"$ref": "#/$defs/layer"},
+              "results": {"$ref": "#/$defs/layer"},
+              "validation": {"$ref": "#/$defs/layer"},
+              "limitations": {"$ref": "#/$defs/layer"}
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "figure_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["figure_id", "kind", "purpose", "claim_ids", "result_ids", "required", "decision_support"],
+        "properties": {
+          "figure_id": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["quantitative", "table", "conceptual"]},
+          "purpose": {"type": "string", "minLength": 1},
+          "claim_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "result_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "required": {"type": "boolean"},
+          "decision_support": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": true
+      }
+    },
+    "page_budget": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["section", "purpose", "target_pages"],
+        "properties": {
+          "section": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "target_pages": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "layer": {
+      "type": "object",
+      "required": ["status", "summary", "evidence_ids"],
+      "properties": {
+        "status": {"enum": ["included", "not_applicable"]},
+        "summary": {"type": "string", "minLength": 1},
+        "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "rationale": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

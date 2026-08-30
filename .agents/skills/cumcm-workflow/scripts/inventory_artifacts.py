@@ -40,7 +40,7 @@ def inventory(root: Path, output: Path) -> list[dict]:
     return records
 
 
-def inventory_v02(source_root: Path, project_root: Path, output: Path, origin: str) -> list[dict]:
+def inventory_sources(source_root: Path, project_root: Path, output: Path, origin: str) -> list[dict]:
     output_resolved = output.resolve()
     records = []
     for path in sorted(source_root.rglob("*")):
@@ -72,8 +72,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--project-root", type=Path)
-    parser.add_argument("--project-id")
+    parser.add_argument("--project-root", type=Path, required=True)
+    parser.add_argument("--project-id", required=True)
     parser.add_argument(
         "--origin",
         choices=("official", "organizer_attachment", "external_reference", "team_created"),
@@ -83,34 +83,28 @@ def main() -> int:
     root = args.root.resolve()
     if not root.is_dir():
         parser.error(f"root is not a directory: {root}")
-    if bool(args.project_root) != bool(args.project_id):
-        parser.error("--project-root and --project-id must be provided together for a v0.2 manifest")
-    if args.project_root:
-        project_root = args.project_root.resolve()
-        if not project_root.is_dir():
-            parser.error(f"project root is not a directory: {project_root}")
-        try:
-            records = inventory_v02(root, project_root, args.output, args.origin)
-        except ValueError as exc:
-            parser.error(str(exc))
-        payload = {
-            "schema_version": "0.2.0",
-            "artifact_type": "source_manifest",
-            "project_id": args.project_id,
-            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.2.0"},
-            "review": {
-                "decision": "unreviewed",
-                "reviewer": None,
-                "reviewed_at": None,
-                "scope": None,
-                "notes": None,
-            },
-            "sources": records,
-        }
-    else:
-        records = inventory(root, args.output)
-        payload = {"root": root.name, "file_count": len(records), "files": records}
+    project_root = args.project_root.resolve()
+    if not project_root.is_dir():
+        parser.error(f"project root is not a directory: {project_root}")
+    try:
+        records = inventory_sources(root, project_root, args.output, args.origin)
+    except ValueError as exc:
+        parser.error(str(exc))
+    payload = {
+        "schema_version": "0.3.0",
+        "artifact_type": "source_manifest",
+        "project_id": args.project_id,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.3.0"},
+        "review": {
+            "decision": "unreviewed",
+            "reviewer": None,
+            "reviewed_at": None,
+            "scope": None,
+            "notes": None,
+        },
+        "sources": records,
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"inventoried {len(records)} files -> {args.output}")

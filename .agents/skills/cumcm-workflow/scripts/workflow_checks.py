@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic v0.2 contract and cross-artifact checks.
+"""Deterministic v0.3 contract and cross-artifact checks.
 
 The checks in this module establish structure, provenance, recorded execution,
 and declared relationships. They do not establish mathematical correctness.
@@ -47,6 +47,19 @@ EVIDENCE_STATES = {
 }
 REVIEW_DECISIONS = {"unreviewed", "accepted", "revision_requested"}
 PROFILES = {"strict", "sprint"}
+GATE_MODES = {"preflight", "enforce"}
+WORKFLOW_VERSION = "0.3.0"
+PAPER_LAYER_NAMES = {
+    "problem_interpretation",
+    "assumptions_boundaries",
+    "variables_parameters",
+    "objective_constraints",
+    "derivation",
+    "algorithm",
+    "results",
+    "validation",
+    "limitations",
+}
 
 CONTRACT_PATHS = {
     "state": ".cumcm/state.json",
@@ -58,7 +71,12 @@ CONTRACT_PATHS = {
     "results": "results/RESULTS_INDEX.json",
     "claims": "validation/CLAIM_LEDGER.json",
     "figures": "figures/FIGURE_MANIFEST.json",
+    "paper_plan": "paper/PAPER_PLAN.json",
+    "latex_template": "paper/LATEX_TEMPLATE_MANIFEST.json",
+    "paper_quality": "paper/PAPER_QUALITY_REPORT.json",
+    "paper_revisions": "paper/PAPER_REVISION_LOG.json",
     "delivery": "delivery/DELIVERY_MANIFEST.json",
+    "compile_receipt": "delivery/COMPILE_RECEIPT.json",
 }
 
 STAGE_CONTRACTS = {
@@ -81,10 +99,12 @@ STAGE_CONTRACTS = {
         "cross_question",
         "results",
     ),
-    "validation": tuple(CONTRACT_PATHS)[:8],
-    "paper": tuple(CONTRACT_PATHS)[:-1],
-    "delivery": tuple(CONTRACT_PATHS),
+    "validation": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims"),
+    "paper": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions"),
+    "delivery": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions", "delivery", "compile_receipt"),
 }
+
+PAPER_CONTRACTS = ("paper_plan", "latex_template", "paper_quality", "paper_revisions")
 
 SCHEMA_FILES = {
     "state": "workflow-state.schema.json",
@@ -96,7 +116,12 @@ SCHEMA_FILES = {
     "results": "results-index.schema.json",
     "claims": "claim-ledger.schema.json",
     "figures": "figure-manifest.schema.json",
+    "paper_plan": "paper-plan.schema.json",
+    "latex_template": "latex-template-manifest.schema.json",
+    "paper_quality": "paper-quality-report.schema.json",
+    "paper_revisions": "paper-revision-log.schema.json",
     "delivery": "delivery-manifest.schema.json",
+    "compile_receipt": "compile-receipt.schema.json",
     "run": "run-manifest.schema.json",
 }
 
@@ -120,6 +145,7 @@ class Finding:
     pointer: str = ""
     related_ids: list[str] = field(default_factory=list)
     remediation: str = ""
+    gate_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -136,6 +162,7 @@ def finding(
     pointer: str = "",
     related_ids: Iterable[str] = (),
     remediation: str = "",
+    gate_only: bool = False,
 ) -> Finding:
     return Finding(
         rule_id=rule_id,
@@ -147,6 +174,7 @@ def finding(
         pointer=pointer,
         related_ids=list(related_ids),
         remediation=remediation,
+        gate_only=gate_only,
     )
 
 
@@ -289,7 +317,7 @@ def check_envelope(data: Any, expected_type: str, stage: str, path: str) -> list
     if not isinstance(data, dict):
         return [finding("ENV-E001", "error", "structural", stage, path, "contract must be a JSON object")]
     findings: list[Finding] = []
-    if data.get("schema_version") != "0.2.0":
+    if data.get("schema_version") != WORKFLOW_VERSION:
         findings.append(
             finding(
                 "ENV-E002",
@@ -297,7 +325,7 @@ def check_envelope(data: Any, expected_type: str, stage: str, path: str) -> list
                 "structural",
                 stage,
                 path,
-                "schema_version must be 0.2.0",
+                "schema_version must be 0.3.0",
                 pointer="/schema_version",
             )
         )
@@ -324,7 +352,7 @@ def check_envelope(data: Any, expected_type: str, stage: str, path: str) -> list
                 "semantic",
                 stage,
                 path,
-                "review.decision must use the v0.2 review vocabulary",
+                "review.decision must use the workflow review vocabulary",
                 pointer="/review/decision",
             )
         )
@@ -335,8 +363,8 @@ def check_state(data: Any, path: str) -> list[Finding]:
     findings = check_envelope(data, "workflow_state", "intake", path)
     if not isinstance(data, dict):
         return findings
-    if data.get("workflow_version") != "0.2.0":
-        findings.append(finding("STATE-E001", "error", "structural", "intake", path, "workflow_version must be 0.2.0"))
+    if data.get("workflow_version") != WORKFLOW_VERSION:
+        findings.append(finding("STATE-E001", "error", "structural", "intake", path, "workflow_version must be 0.3.0"))
     current = data.get("current_stage")
     stages = data.get("stages")
     if current not in STAGES:
@@ -534,8 +562,8 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
         if capability_id not in capability_ids:
             findings.append(finding("RUN-E003", "error", "structural", "computation", rel_path, f"run names unknown capability: {capability_id}", related_ids=[str(capability_id)]))
     for kind in ("inputs", "outputs"):
-        default_role = "formal_input" if kind == "inputs" else "claim_bearing_output"
         required_hash_roles = {"formal_input", "claim_bearing_output"}
+        allowed_roles = {"formal_input", "auxiliary_input"} if kind == "inputs" else {"claim_bearing_output", "intermediate_output", "diagnostic_output"}
         values = data.get(kind)
         if not isinstance(values, list) or (kind == "outputs" and not values):
             findings.append(finding("RUN-E004", "error", "execution", "computation", rel_path, f"{kind} must be a {'nonempty ' if kind == 'outputs' else ''}list"))
@@ -548,7 +576,10 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
             if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
                 findings.append(finding("RUN-E006", "error", "execution", "computation", rel_path, f"missing or empty {kind[:-1]}: {entry.get('path')}"))
                 continue
-            role = entry.get("evidence_role") or default_role
+            role = entry.get("evidence_role")
+            if role not in allowed_roles:
+                findings.append(finding("RUN-E016", "error", "structural", "computation", rel_path, f"missing or invalid evidence_role for {kind[:-1]}: {entry.get('path')}"))
+                continue
             recorded_hash = entry.get("sha256")
             if role in required_hash_roles:
                 if not nonempty(recorded_hash):
@@ -650,7 +681,7 @@ def check_claims(
     findings.extend(require_fields(claims, ("text", "claim_type", "scope", "evidence_state"), ("claim_id",), "CLAIM", "validation", path))
     review = data.get("independent_review")
     if not isinstance(review, dict) or review.get("decision") not in {"accepted", "revision_requested"}:
-        findings.append(finding("CLAIM-E006", "error", "semantic", "validation", path, f"{profile} profile requires a recorded independent logic pass"))
+        findings.append(finding("CLAIM-E006", "error", "semantic", "validation", path, f"{profile} profile requires a recorded independent logic pass", gate_only=True))
     for claim in as_list(claims):
         if not isinstance(claim, dict):
             continue
@@ -706,7 +737,7 @@ def check_claims(
         if state in {"supported_not_reproduced", "reproduced", "partially_supported"}:
             review = claim.get("review")
             if not isinstance(review, dict) or review.get("decision") != "accepted":
-                findings.append(finding("CLAIM-E014", "error", "semantic", "validation", path, f"supported claim lacks accepted review: {ident}", related_ids=[ident]))
+                findings.append(finding("CLAIM-E014", "error", "semantic", "validation", path, f"supported claim lacks accepted review: {ident}", related_ids=[ident], gate_only=True))
     return findings
 
 
@@ -737,7 +768,7 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
         review = figure.get("visual_review")
         if not isinstance(review, dict) or review.get("decision") != "accepted":
             severity = "error" if profile == "strict" else "warning"
-            findings.append(finding("FIGURE-E009", severity, "visual", "paper", path, f"figure lacks accepted visual review: {ident}", related_ids=[ident]))
+            findings.append(finding("FIGURE-E009", severity, "visual", "paper", path, f"figure lacks accepted visual review: {ident}", related_ids=[ident], gate_only=severity == "error"))
     return findings
 
 
@@ -771,7 +802,415 @@ def check_delivery(data: Any, root: Path, path: str, profile: str) -> list[Findi
         findings.append(finding("DELIVERY-E010", "error", "semantic", "delivery", path, "delivery contains unresolved errors"))
     final_review = data.get("final_review")
     if not isinstance(final_review, dict) or final_review.get("decision") != "accepted":
-        findings.append(finding("DELIVERY-E011", "error", "semantic", "delivery", path, "final human review must be accepted"))
+        findings.append(finding("DELIVERY-E011", "error", "semantic", "delivery", path, "final human review must be accepted", gate_only=True))
+    return findings
+
+
+def check_bound_artifact(root: Path, artifact: Any, stage: str, path: str, rule_prefix: str) -> list[Finding]:
+    if not isinstance(artifact, dict):
+        return [finding(f"{rule_prefix}-E001", "error", "structural", stage, path, "artifact binding must be an object")]
+    rel = artifact.get("path")
+    file_path = safe_project_path(root, rel)
+    if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
+        return [finding(f"{rule_prefix}-E002", "error", "structural", stage, path, f"bound artifact is missing or empty: {rel}")]
+    if artifact.get("sha256") != sha256(file_path):
+        return [finding(f"{rule_prefix}-E003", "error", "structural", stage, path, f"bound artifact hash mismatch: {rel}")]
+    return []
+
+
+def check_paper_plan(
+    data: Any,
+    path: str,
+    subproblem_ids: set[str],
+    claim_ids: set[str],
+    result_ids: set[str],
+    figure_ids: set[str],
+    known_evidence_ids: set[str],
+    profile: str,
+) -> list[Finding]:
+    findings = check_envelope(data, "paper_plan", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    references = as_list(data.get("reference_reviews"))
+    if profile == "strict" and not references:
+        findings.append(finding("PPLAN-E001", "error", "semantic", "paper", path, "strict profile requires at least one quality-reference review"))
+    matrix = as_list(data.get("claims_evidence_matrix"))
+    matrix_claim_ids = ids(matrix, "claim_id")
+    for row in matrix:
+        if not isinstance(row, dict):
+            continue
+        claim_id = item_id(row, "claim_id")
+        if claim_id not in claim_ids:
+            findings.append(finding("PPLAN-E002", "error", "structural", "paper", path, f"claims-evidence matrix names unknown claim: {claim_id}", related_ids=[claim_id]))
+        if row.get("subproblem_id") not in subproblem_ids:
+            findings.append(finding("PPLAN-E003", "error", "structural", "paper", path, f"matrix row names unknown subproblem: {row.get('subproblem_id')}", related_ids=[claim_id]))
+        for evidence_id in as_list(row.get("evidence_ids")):
+            if evidence_id not in known_evidence_ids:
+                findings.append(finding("PPLAN-E004", "error", "structural", "paper", path, f"matrix row names unknown evidence: {evidence_id}", related_ids=[claim_id, str(evidence_id)]))
+    missing_claims = sorted(claim_ids - matrix_claim_ids)
+    if missing_claims:
+        findings.append(finding("PPLAN-E005", "error", "semantic", "paper", path, f"claims missing from claims-evidence matrix: {', '.join(missing_claims)}", related_ids=missing_claims))
+
+    chains = as_list(data.get("question_argument_chains"))
+    chain_subproblems = ids(chains, "subproblem_id")
+    missing_questions = sorted(subproblem_ids - chain_subproblems)
+    if missing_questions:
+        findings.append(finding("PPLAN-E006", "error", "semantic", "paper", path, f"subproblems missing complete argument chains: {', '.join(missing_questions)}", related_ids=missing_questions))
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        subproblem = item_id(chain, "subproblem_id")
+        if subproblem not in subproblem_ids:
+            findings.append(finding("PPLAN-E007", "error", "structural", "paper", path, f"argument chain names unknown subproblem: {subproblem}", related_ids=[subproblem]))
+        layers = chain.get("layers")
+        if not isinstance(layers, dict):
+            continue
+        missing_layers = sorted(PAPER_LAYER_NAMES - set(layers))
+        if missing_layers:
+            findings.append(finding("PPLAN-E008", "error", "semantic", "paper", path, f"{subproblem} argument chain misses layers: {', '.join(missing_layers)}", related_ids=[subproblem]))
+        for layer_name, layer in layers.items():
+            if not isinstance(layer, dict):
+                continue
+            layer_ids = as_list(layer.get("evidence_ids"))
+            if layer.get("status") == "included" and not layer_ids:
+                findings.append(finding("PPLAN-E009", "error", "semantic", "paper", path, f"included layer lacks evidence IDs: {subproblem}/{layer_name}", related_ids=[subproblem]))
+            if layer.get("status") == "not_applicable" and not nonempty(layer.get("rationale")):
+                findings.append(finding("PPLAN-E010", "error", "semantic", "paper", path, f"not_applicable layer lacks rationale: {subproblem}/{layer_name}", related_ids=[subproblem]))
+            for evidence_id in layer_ids:
+                if evidence_id not in known_evidence_ids:
+                    findings.append(finding("PPLAN-E011", "error", "structural", "paper", path, f"argument layer names unknown evidence: {evidence_id}", related_ids=[subproblem, str(evidence_id)]))
+
+    plans = as_list(data.get("figure_plan"))
+    planned_ids = ids(plans, "figure_id")
+    for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+        figure_id = item_id(plan, "figure_id")
+        if plan.get("required") is True and figure_id not in figure_ids:
+            findings.append(finding("PPLAN-E012", "error", "visual", "paper", path, f"required planned figure was not produced: {figure_id}", related_ids=[figure_id]))
+        for claim_id in as_list(plan.get("claim_ids")):
+            if claim_id not in claim_ids:
+                findings.append(finding("PPLAN-E013", "error", "structural", "paper", path, f"figure plan names unknown claim: {claim_id}", related_ids=[figure_id, str(claim_id)]))
+        for result_id in as_list(plan.get("result_ids")):
+            if result_id not in result_ids:
+                findings.append(finding("PPLAN-E014", "error", "structural", "paper", path, f"figure plan names unknown result: {result_id}", related_ids=[figure_id, str(result_id)]))
+        if plan.get("kind") != "conceptual" and (not as_list(plan.get("claim_ids")) or not as_list(plan.get("result_ids"))):
+            findings.append(finding("PPLAN-E015", "error", "semantic", "paper", path, f"quantitative figure plan must explain a claim with indexed results: {figure_id}", related_ids=[figure_id]))
+    unplanned = sorted(figure_ids - planned_ids)
+    if unplanned:
+        findings.append(finding("PPLAN-E016", "error", "semantic", "paper", path, f"produced figures missing from paper plan: {', '.join(unplanned)}", related_ids=unplanned))
+    return findings
+
+
+def check_paper_quality(
+    data: Any,
+    root: Path,
+    path: str,
+    subproblem_ids: set[str],
+    known_evidence_ids: set[str],
+    profile: str,
+) -> list[Finding]:
+    findings = check_envelope(data, "paper_quality_report", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    paper = data.get("paper_artifact")
+    findings.extend(check_bound_artifact(root, paper, "paper", path, "PQUALITY"))
+    bound_hash = paper.get("sha256") if isinstance(paper, dict) else None
+    bound_path = paper.get("path") if isinstance(paper, dict) else None
+    content = data.get("content_review")
+    layout = data.get("layout_review")
+    final_qa = data.get("final_qa")
+    for name, review in (("content", content), ("layout", layout), ("final", final_qa)):
+        if not isinstance(review, dict):
+            continue
+        if review.get("decision") == "accepted" and (not nonempty(review.get("reviewer")) or not nonempty(review.get("reviewed_at"))):
+            findings.append(finding("PQUALITY-E012", "error", "semantic", "paper", path, f"accepted {name} review lacks reviewer or review time"))
+        artifact = review.get("artifact")
+        if isinstance(artifact, dict) and (artifact.get("path") != bound_path or artifact.get("sha256") != bound_hash):
+            findings.append(finding("PQUALITY-E004", "error", "structural", "paper", path, f"{name} review is bound to a different paper version"))
+    if isinstance(content, dict):
+        reviewed_questions = ids(content.get("questions"), "subproblem_id")
+        missing = sorted(subproblem_ids - reviewed_questions)
+        if missing:
+            findings.append(finding("PQUALITY-E005", "error", "semantic", "paper", path, f"content review misses subproblems: {', '.join(missing)}", related_ids=missing))
+        for question in as_list(content.get("questions")):
+            if not isinstance(question, dict):
+                continue
+            subproblem = item_id(question, "subproblem_id")
+            for dimension in ("argument_chain", "derivation", "result_interpretation", "validation_strength", "limitations"):
+                item = question.get(dimension)
+                if not isinstance(item, dict):
+                    continue
+                if item.get("status") == "fail":
+                    findings.append(finding("PQUALITY-E006", "error", "semantic", "paper", path, f"content review failed: {subproblem}/{dimension}", related_ids=[subproblem]))
+                for evidence_id in as_list(item.get("evidence_ids")):
+                    if evidence_id not in known_evidence_ids:
+                        findings.append(finding("PQUALITY-E007", "error", "structural", "paper", path, f"content review names unknown evidence: {evidence_id}", related_ids=[subproblem, str(evidence_id)]))
+    if isinstance(layout, dict):
+        page_count = layout.get("page_count")
+        pages = {page for page in as_list(layout.get("rendered_pages")) if isinstance(page, int)}
+        if (profile == "strict" or data.get("paper_status") == "final") and isinstance(page_count, int) and pages != set(range(1, page_count + 1)):
+            findings.append(finding("PQUALITY-E008", "error", "visual", "paper", path, "strict or final layout review must record visual inspection of every PDF page"))
+        if any(isinstance(check, dict) and check.get("status") == "fail" for check in as_list(layout.get("checks"))):
+            findings.append(finding("PQUALITY-E009", "error", "visual", "paper", path, "layout review contains failed checks"))
+    issues = as_list(data.get("open_issues"))
+    if data.get("paper_status") == "final":
+        for name, review in (("content", content), ("layout", layout), ("final QA", final_qa)):
+            if not isinstance(review, dict) or review.get("decision") != "accepted":
+                findings.append(finding("PQUALITY-E010", "error", "semantic", "paper", path, f"final paper lacks accepted {name} review", gate_only=True))
+        open_p0 = [item_id(issue, "issue_id") for issue in issues if isinstance(issue, dict) and issue.get("severity") == "P0" and issue.get("status") == "open"]
+        if open_p0:
+            findings.append(finding("PQUALITY-E011", "error", "semantic", "paper", path, f"final paper has open P0 issues: {', '.join(open_p0)}", related_ids=open_p0))
+    return findings
+
+
+def check_latex_template(
+    data: Any,
+    root: Path,
+    path: str,
+    subproblem_ids: set[str],
+    paper_quality: Any,
+    through_stage: str,
+) -> list[Finding]:
+    findings = check_envelope(data, "latex_template_manifest", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    required_files = as_list(data.get("required_files"))
+    for rel in required_files:
+        file_path = safe_project_path(root, rel)
+        if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
+            findings.append(finding("LATEX-E001", "error", "structural", "paper", path, f"required LaTeX file is missing or empty: {rel}"))
+    main_rel = data.get("main_path")
+    main_path = safe_project_path(root, main_rel)
+    main_text = ""
+    if main_path is None or not main_path.is_file():
+        findings.append(finding("LATEX-E002", "error", "structural", "paper", path, f"LaTeX main file is missing: {main_rel}"))
+    else:
+        main_text = main_path.read_text(encoding="utf-8", errors="replace")
+    section_files = set(str(value) for value in as_list(data.get("section_files")))
+    mappings = as_list(data.get("subproblem_sections"))
+    mapped_ids: set[str] = set()
+    mapped_paths: set[str] = set()
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        subproblem_id = item_id(mapping, "subproblem_id")
+        rel = mapping.get("path")
+        if subproblem_id in mapped_ids:
+            findings.append(finding("LATEX-E003", "error", "structural", "paper", path, f"duplicate LaTeX subproblem mapping: {subproblem_id}", related_ids=[subproblem_id]))
+        mapped_ids.add(subproblem_id)
+        mapped_paths.add(str(rel))
+        if rel not in section_files:
+            findings.append(finding("LATEX-E004", "error", "structural", "paper", path, f"mapped subproblem section is absent from section_files: {rel}", related_ids=[subproblem_id]))
+        rel_path = safe_project_path(root, rel)
+        if rel_path is None or not rel_path.is_file():
+            findings.append(finding("LATEX-E005", "error", "structural", "paper", path, f"mapped subproblem section is missing: {rel}", related_ids=[subproblem_id]))
+        if nonempty(rel) and main_text:
+            input_target = str(rel)
+            if input_target.startswith("paper/"):
+                input_target = input_target[len("paper/") :]
+            input_target = input_target[:-4] if input_target.endswith(".tex") else input_target
+            if f"\\input{{{input_target}}}" not in main_text:
+                findings.append(finding("LATEX-E006", "error", "structural", "paper", path, f"main.tex does not include mapped subproblem section: {rel}", related_ids=[subproblem_id]))
+    missing = sorted(subproblem_ids - mapped_ids)
+    extra = sorted(mapped_ids - subproblem_ids)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing {', '.join(missing)}")
+        if extra:
+            details.append(f"unknown {', '.join(extra)}")
+        findings.append(finding("LATEX-E007", "error", "semantic", "paper", path, f"LaTeX subproblem mapping mismatch: {'; '.join(details)}", related_ids=[*missing, *extra]))
+
+    quality_status = paper_quality.get("paper_status") if isinstance(paper_quality, dict) else None
+    if quality_status == "final":
+        markers = [str(value) for value in as_list(data.get("placeholder_markers")) if nonempty(value)]
+        for rel in required_files:
+            if not str(rel).endswith(".tex"):
+                continue
+            source = safe_project_path(root, rel)
+            if source is None or not source.is_file():
+                continue
+            text = source.read_text(encoding="utf-8", errors="replace")
+            present = [marker for marker in markers if marker in text]
+            if present:
+                findings.append(finding("LATEX-E008", "error", "semantic", "paper", path, f"final paper source still contains placeholder markers in {rel}: {', '.join(present)}"))
+    if through_stage == "delivery" and data.get("official_compliance") != "verified_against_current_rules":
+        findings.append(finding("LATEX-E009", "error", "visual", "delivery", path, "delivery requires the LaTeX scaffold to be reviewed against the current official rules", gate_only=True))
+    return findings
+
+
+def check_revision_log(data: Any, root: Path, path: str, paper_artifact: Any, issues: Any) -> list[Finding]:
+    findings = check_envelope(data, "paper_revision_log", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    snapshots: list[tuple[str, Any]] = [("initial_snapshot", data.get("initial_snapshot"))]
+    revisions = as_list(data.get("revisions"))
+    issue_items = {item_id(issue, "issue_id"): issue for issue in as_list(issues) if isinstance(issue, dict)}
+    issue_ids = set(issue_items)
+    verified_issue_ids: set[str] = set()
+    seen: set[str] = set()
+    previous_output: Any = data.get("initial_snapshot")
+    for index, revision in enumerate(revisions):
+        if not isinstance(revision, dict):
+            continue
+        revision_id = item_id(revision, "revision_id")
+        if revision_id in seen:
+            findings.append(finding("PREVISION-E001", "error", "structural", "paper", path, f"duplicate revision ID: {revision_id}", related_ids=[revision_id]))
+        seen.add(revision_id)
+        if revision.get("input") != previous_output:
+            findings.append(finding("PREVISION-E002", "error", "structural", "paper", path, f"revision input does not match previous snapshot: {revision_id}", related_ids=[revision_id]))
+        snapshots.extend(((f"revisions/{index}/input", revision.get("input")), (f"revisions/{index}/output", revision.get("output"))))
+        previous_output = revision.get("output")
+        for issue_id in as_list(revision.get("issue_ids")):
+            if issue_id not in issue_ids:
+                findings.append(finding("PREVISION-E003", "error", "structural", "paper", path, f"revision names unknown issue: {issue_id}", related_ids=[revision_id, str(issue_id)]))
+            elif isinstance(revision.get("verification"), dict) and revision["verification"].get("decision") == "accepted":
+                verified_issue_ids.add(str(issue_id))
+    for label, snapshot in snapshots:
+        for item in check_bound_artifact(root, snapshot, "paper", path, "PREVISION"):
+            findings.append(finding(item.rule_id, item.severity, item.evidence_type, item.owning_stage, item.path, f"{label}: {item.message}"))
+    if isinstance(paper_artifact, dict) and previous_output != paper_artifact:
+        findings.append(finding("PREVISION-E004", "error", "structural", "paper", path, "latest revision snapshot does not match the paper quality report artifact"))
+    unverified_closed = sorted(
+        issue_id
+        for issue_id, issue in issue_items.items()
+        if issue.get("status") == "closed" and issue_id not in verified_issue_ids
+    )
+    if unverified_closed:
+        findings.append(finding("PREVISION-E005", "error", "semantic", "paper", path, f"closed issues lack an accepted revision verification: {', '.join(unverified_closed)}", related_ids=unverified_closed))
+    return findings
+
+
+def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any, latex_template: Any, delivery: Any, profile: str) -> list[Finding]:
+    findings = check_envelope(data, "compile_receipt", "delivery", path)
+    if not isinstance(data, dict):
+        return findings
+    attempts = {item_id(item, "attempt_id"): item for item in as_list(data.get("attempts")) if isinstance(item, dict)}
+    selected_id = data.get("selected_attempt_id")
+    selected = attempts.get(str(selected_id))
+    if selected is None:
+        findings.append(finding("COMPILE-E001", "error", "execution", "delivery", path, f"selected compile attempt does not exist: {selected_id}"))
+        return findings
+    pdf_binding = {"path": selected.get("pdf_path"), "sha256": selected.get("pdf_sha256")}
+    findings.extend(check_bound_artifact(root, pdf_binding, "delivery", path, "COMPILE"))
+    log_path = safe_project_path(root, selected.get("log_path"))
+    if log_path is None or not log_path.is_file():
+        findings.append(finding("COMPILE-E004", "error", "execution", "delivery", path, "selected compile log is missing"))
+    if selected.get("exit_code") != 0:
+        findings.append(finding("COMPILE-E005", "error", "execution", "delivery", path, "selected compile attempt did not exit successfully"))
+    if profile == "strict" and (selected.get("font_check") != "pass" or selected.get("glyph_check") != "pass"):
+        findings.append(finding("COMPILE-E006", "error", "visual", "delivery", path, "strict delivery requires passing font and missing-glyph checks"))
+    if isinstance(latex_template, dict) and str(selected.get("engine", "")).casefold() != str(latex_template.get("engine", "")).casefold():
+        findings.append(finding("COMPILE-E014", "error", "execution", "delivery", path, "selected compile engine differs from the LaTeX template manifest"))
+    binding = data.get("layout_review_binding")
+    if isinstance(binding, dict):
+        quality_path = safe_project_path(root, binding.get("quality_report_path"))
+        if quality_path is None or not quality_path.is_file() or binding.get("quality_report_sha256") != sha256(quality_path):
+            findings.append(finding("COMPILE-E007", "error", "structural", "delivery", path, "layout-review binding does not match the current paper quality report"))
+        if binding.get("pdf_sha256") != selected.get("pdf_sha256"):
+            findings.append(finding("COMPILE-E008", "error", "structural", "delivery", path, "layout-review binding names a different PDF version"))
+    if isinstance(quality_report, dict):
+        if quality_report.get("paper_status") != "final":
+            findings.append(finding("COMPILE-E013", "error", "semantic", "delivery", path, "delivery requires a paper quality report with paper_status=final"))
+        paper = quality_report.get("paper_artifact")
+        layout = quality_report.get("layout_review")
+        if isinstance(paper, dict) and (paper.get("path") != selected.get("pdf_path") or paper.get("sha256") != selected.get("pdf_sha256")):
+            findings.append(finding("COMPILE-E009", "error", "structural", "delivery", path, "selected compile PDF differs from the reviewed paper artifact"))
+        if isinstance(layout, dict) and layout.get("page_count") != selected.get("page_count"):
+            findings.append(finding("COMPILE-E010", "error", "visual", "delivery", path, "compile receipt page count differs from layout review"))
+    if isinstance(delivery, dict):
+        if delivery.get("compile_receipt_path") != path:
+            findings.append(finding("COMPILE-E011", "error", "structural", "delivery", path, "delivery manifest does not point to this compile receipt"))
+        summary = delivery.get("compile")
+        if isinstance(summary, dict) and (summary.get("exit_code") != selected.get("exit_code") or summary.get("page_count") != selected.get("page_count")):
+            findings.append(finding("COMPILE-E012", "error", "execution", "delivery", path, "delivery compile summary disagrees with selected compile attempt"))
+    return findings
+
+
+def canonical_event_hash(event: dict[str, Any]) -> str:
+    payload = {key: value for key, value in event.items() if key != "event_hash"}
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def stage_scope_paths(root: Path, stage: str) -> list[str]:
+    mapping = {
+        "intake": [CONTRACT_PATHS["sources"]],
+        "problem-analysis": [CONTRACT_PATHS["facts"], CONTRACT_PATHS["capabilities"]],
+        "model-design": [CONTRACT_PATHS["model"], CONTRACT_PATHS["cross_question"]],
+        "computation": [CONTRACT_PATHS["results"]],
+        "validation": [CONTRACT_PATHS["claims"]],
+        "paper": [CONTRACT_PATHS["figures"], *(CONTRACT_PATHS[name] for name in PAPER_CONTRACTS)],
+        "delivery": [CONTRACT_PATHS["delivery"], CONTRACT_PATHS["compile_receipt"]],
+    }
+    paths = list(mapping[stage])
+    if stage == "computation":
+        paths.extend(path.relative_to(root).as_posix() for path in discover_run_manifests(root))
+    return paths
+
+
+def check_decision_log(root: Path, state: Any) -> list[Finding]:
+    path = ".cumcm/decisions.jsonl"
+    log_path = root / path
+    if not log_path.is_file():
+        return [finding("DECISION-E001", "error", "semantic", "intake", path, "v0.3 project has no append-only decision log", gate_only=True)]
+    findings: list[Finding] = []
+    events: list[dict[str, Any]] = []
+    previous_hash: str | None = None
+    seen_ids: set[str] = set()
+    for line_number, raw in enumerate(log_path.read_text(encoding="utf-8").splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            findings.append(finding("DECISION-E002", "error", "structural", "intake", path, f"invalid JSON on line {line_number}: {exc}"))
+            continue
+        if not isinstance(event, dict):
+            findings.append(finding("DECISION-E003", "error", "structural", "intake", path, f"decision event on line {line_number} is not an object"))
+            continue
+        decision_id = item_id(event, "decision_id")
+        if not decision_id or decision_id in seen_ids:
+            findings.append(finding("DECISION-E004", "error", "structural", "intake", path, f"missing or duplicate decision_id on line {line_number}: {decision_id}"))
+        seen_ids.add(decision_id)
+        if event.get("previous_event_hash") != previous_hash:
+            findings.append(finding("DECISION-E005", "error", "structural", "intake", path, f"broken previous_event_hash on line {line_number}", related_ids=[decision_id]))
+        expected_hash = canonical_event_hash(event)
+        if event.get("event_hash") != expected_hash:
+            findings.append(finding("DECISION-E006", "error", "structural", "intake", path, f"event hash mismatch on line {line_number}", related_ids=[decision_id]))
+        previous_hash = event.get("event_hash") if nonempty(event.get("event_hash")) else None
+        if event.get("stage") not in STAGES or event.get("decision") not in {"accepted", "revision_requested"}:
+            findings.append(finding("DECISION-E007", "error", "structural", "intake", path, f"invalid stage or decision on line {line_number}", related_ids=[decision_id]))
+        for required_field in ("reviewer", "task_turn_ref", "user_visible_summary", "decided_at"):
+            if not nonempty(event.get(required_field)):
+                findings.append(finding("DECISION-E011", "error", "structural", "intake", path, f"decision event lacks {required_field} on line {line_number}", related_ids=[decision_id]))
+        if not isinstance(event.get("scope"), list) or not event.get("scope"):
+            findings.append(finding("DECISION-E012", "error", "structural", "intake", path, f"decision event has no artifact scope on line {line_number}", related_ids=[decision_id]))
+        else:
+            for entry in event["scope"]:
+                if not isinstance(entry, dict) or safe_project_path(root, entry.get("path")) is None or not re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256", ""))):
+                    findings.append(finding("DECISION-E013", "error", "structural", "intake", path, f"decision event has an invalid scope entry on line {line_number}", related_ids=[decision_id]))
+        events.append(event)
+    latest: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if event.get("stage") in STAGES:
+            latest[str(event["stage"])] = event
+    state_map = state.get("stages", {}) if isinstance(state, dict) else {}
+    for stage in STAGES:
+        if state_map.get(stage) != "passed":
+            continue
+        event = latest.get(stage)
+        if event is None or event.get("decision") != "accepted":
+            findings.append(finding("DECISION-E008", "error", "semantic", stage, path, f"passed stage lacks a latest accepted decision: {stage}", gate_only=True))
+            continue
+        scope = {entry.get("path"): entry.get("sha256") for entry in as_list(event.get("scope")) if isinstance(entry, dict)}
+        for rel in stage_scope_paths(root, stage):
+            artifact = safe_project_path(root, rel)
+            if artifact is None or not artifact.is_file():
+                findings.append(finding("DECISION-E009", "error", "structural", stage, path, f"decision scope target is missing: {rel}"))
+            elif scope.get(rel) != sha256(artifact):
+                findings.append(finding("DECISION-E010", "error", "structural", stage, path, f"accepted decision is stale or does not cover current artifact: {rel}"))
     return findings
 
 
@@ -821,15 +1260,24 @@ def owning_stage_for_contract(name: str) -> str:
         "results": "computation",
         "claims": "validation",
         "figures": "paper",
+        "paper_plan": "paper",
+        "latex_template": "paper",
+        "paper_quality": "paper",
+        "paper_revisions": "paper",
         "delivery": "delivery",
+        "compile_receipt": "delivery",
     }[name]
 
 
-def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], dict[str, Any]]:
+def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforce") -> tuple[list[Finding], dict[str, Any]]:
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
     if profile not in PROFILES:
         raise ValueError(f"unknown profile: {profile}")
+    if gate_mode not in GATE_MODES:
+        raise ValueError(f"unknown gate mode: {gate_mode}")
+    state_preview, _ = read_json(root / CONTRACT_PATHS["state"])
+    workflow_version = state_preview.get("workflow_version") if isinstance(state_preview, dict) else None
     required = STAGE_CONTRACTS[stage]
     contracts, findings = load_contracts(root, required)
     if stage == "validation" and "figures" not in contracts:
@@ -874,10 +1322,14 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
     model_ids: set[str] = set()
     result_ids: set[str] = set()
     figure_ids: set[str] = set()
+    claim_ids: set[str] = set()
 
     if "state" in contracts:
         findings.extend(check_schema(contracts["state"], "state", "intake", CONTRACT_PATHS["state"]))
         findings.extend(check_state(contracts["state"], CONTRACT_PATHS["state"]))
+    for name, contract in contracts.items():
+        if isinstance(contract, dict) and contract.get("schema_version") != WORKFLOW_VERSION:
+            findings.append(finding("PROJECT-E004", "error", "structural", owning_stage_for_contract(name), CONTRACT_PATHS[name], "contract schema_version must be 0.3.0"))
     if "sources" in contracts:
         findings.extend(check_schema(contracts["sources"], "sources", "intake", CONTRACT_PATHS["sources"]))
         findings.extend(check_sources(contracts["sources"], root, CONTRACT_PATHS["sources"]))
@@ -922,7 +1374,7 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
                 run_ids.add(run["run_id"])
                 executed_capability_ids.update(str(value) for value in as_list(run.get("capability_ids")))
                 run_output_roles[run["run_id"]] = {
-                    str(entry.get("path")): str(entry.get("evidence_role") or "claim_bearing_output")
+                    str(entry.get("path")): str(entry.get("evidence_role"))
                     for entry in as_list(run.get("outputs"))
                     if isinstance(entry, dict) and nonempty(entry.get("path"))
                 }
@@ -971,9 +1423,30 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
             "figures": figure_ids,
         }
         findings.extend(check_claims(contracts["claims"], known, CONTRACT_PATHS["claims"], profile))
+        if isinstance(contracts["claims"], dict):
+            claim_ids = ids(contracts["claims"].get("claims"), "claim_id")
+    known_evidence_ids = set().union(fact_ids, model_ids, run_ids, result_ids, figure_ids, claim_ids)
+    if "paper_plan" in contracts:
+        findings.extend(check_schema(contracts["paper_plan"], "paper_plan", "paper", CONTRACT_PATHS["paper_plan"]))
+        findings.extend(check_paper_plan(contracts["paper_plan"], CONTRACT_PATHS["paper_plan"], subproblem_ids, claim_ids, result_ids, figure_ids, known_evidence_ids, profile))
+    if "paper_quality" in contracts:
+        findings.extend(check_schema(contracts["paper_quality"], "paper_quality", "paper", CONTRACT_PATHS["paper_quality"]))
+        findings.extend(check_paper_quality(contracts["paper_quality"], root, CONTRACT_PATHS["paper_quality"], subproblem_ids, known_evidence_ids, profile))
+    if "latex_template" in contracts:
+        findings.extend(check_schema(contracts["latex_template"], "latex_template", "paper", CONTRACT_PATHS["latex_template"]))
+        findings.extend(check_latex_template(contracts["latex_template"], root, CONTRACT_PATHS["latex_template"], subproblem_ids, contracts.get("paper_quality"), stage))
+    if "paper_revisions" in contracts:
+        findings.extend(check_schema(contracts["paper_revisions"], "paper_revisions", "paper", CONTRACT_PATHS["paper_revisions"]))
+        quality = contracts.get("paper_quality")
+        paper_artifact = quality.get("paper_artifact") if isinstance(quality, dict) else None
+        issues = quality.get("open_issues") if isinstance(quality, dict) else []
+        findings.extend(check_revision_log(contracts["paper_revisions"], root, CONTRACT_PATHS["paper_revisions"], paper_artifact, issues))
     if "delivery" in contracts:
         findings.extend(check_schema(contracts["delivery"], "delivery", "delivery", CONTRACT_PATHS["delivery"]))
         findings.extend(check_delivery(contracts["delivery"], root, CONTRACT_PATHS["delivery"], profile))
+    if "compile_receipt" in contracts:
+        findings.extend(check_schema(contracts["compile_receipt"], "compile_receipt", "delivery", CONTRACT_PATHS["compile_receipt"]))
+        findings.extend(check_compile_receipt(contracts["compile_receipt"], root, CONTRACT_PATHS["compile_receipt"], contracts.get("paper_quality"), contracts.get("latex_template"), contracts.get("delivery"), profile))
 
     state = contracts.get("state")
     state_map = state.get("stages", {}) if isinstance(state, dict) else {}
@@ -992,13 +1465,31 @@ def check_project(root: Path, stage: str, profile: str) -> tuple[list[Finding], 
                         owner,
                         CONTRACT_PATHS[name],
                         f"passed stage owns an unaccepted contract: {name}",
+                        gate_only=True,
                     )
                 )
+
+    findings.extend(check_decision_log(root, state))
+
+    pending_review_count = sum(item.severity == "error" and item.gate_only for item in findings)
+    automated_error_count = sum(item.severity == "error" and not item.gate_only for item in findings)
+    blocking_error_count = automated_error_count + (pending_review_count if gate_mode == "enforce" else 0)
+    if automated_error_count:
+        gate_status = "blocked"
+    elif pending_review_count:
+        gate_status = "awaiting_review"
+    else:
+        gate_status = "passed"
 
     summary = {
         "project_ids": sorted(project_ids),
         "stage": stage,
         "profile": profile,
+        "workflow_version": workflow_version,
+        "gate_mode": gate_mode,
+        "gate_status": gate_status,
+        "pending_review_count": pending_review_count,
+        "blocking_error_count": blocking_error_count,
         "contracts_loaded": sorted(contracts),
         "run_count": run_count,
         "finding_counts": {

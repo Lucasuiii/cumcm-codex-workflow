@@ -6,7 +6,7 @@
   "required": ["workflow_version", "current_stage", "stages"],
   "properties": {
     "artifact_type": {"const": "workflow_state"},
-    "workflow_version": {"const": "0.2.0"},
+    "workflow_version": {"const": "0.3.0"},
     "current_stage": {"enum": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"]},
     "stages": {
       "type": "object",

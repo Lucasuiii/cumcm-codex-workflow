@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/paper-quality-report.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["paper_status", "paper_artifact", "content_review", "layout_review", "final_qa", "open_issues"],
+  "properties": {
+    "artifact_type": {"const": "paper_quality_report"},
+    "paper_status": {"enum": ["technical_draft", "candidate", "final"]},
+    "paper_artifact": {"$ref": "#/$defs/artifact"},
+    "content_review": {
+      "type": "object",
+      "required": ["decision", "reviewer", "reviewed_at", "artifact", "questions"],
+      "properties": {
+        "decision": {"enum": ["unreviewed", "accepted", "revision_requested"]},
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at": {"type": ["string", "null"]},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["subproblem_id", "argument_chain", "derivation", "result_interpretation", "validation_strength", "limitations"],
+            "properties": {
+              "subproblem_id": {"type": "string", "minLength": 1},
+              "argument_chain": {"$ref": "#/$defs/dimension"},
+              "derivation": {"$ref": "#/$defs/dimension"},
+              "result_interpretation": {"$ref": "#/$defs/dimension"},
+              "validation_strength": {"$ref": "#/$defs/dimension"},
+              "limitations": {"$ref": "#/$defs/dimension"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "layout_review": {
+      "type": "object",
+      "required": ["decision", "reviewer", "reviewed_at", "artifact", "page_count", "rendered_pages", "checks"],
+      "properties": {
+        "decision": {"enum": ["unreviewed", "accepted", "revision_requested"]},
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at": {"type": ["string", "null"]},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "page_count": {"type": "integer", "minimum": 1},
+        "rendered_pages": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["check_id", "category", "status", "notes"],
+            "properties": {
+              "check_id": {"type": "string", "minLength": 1},
+              "category": {"enum": ["heading", "equation", "table", "figure", "caption", "whitespace", "pagination", "cross_page", "font_glyph", "other"]},
+              "status": {"enum": ["pass", "fail", "not_applicable"]},
+              "notes": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "final_qa": {
+      "type": "object",
+      "required": ["decision", "reviewer", "reviewed_at", "artifact", "notes"],
+      "properties": {
+        "decision": {"enum": ["unreviewed", "accepted", "revision_requested"]},
+        "reviewer": {"type": ["string", "null"]},
+        "reviewed_at": {"type": ["string", "null"]},
+        "artifact": {"$ref": "#/$defs/artifact"},
+        "notes": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "open_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "severity", "category", "status", "description", "location"],
+        "properties": {
+          "issue_id": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["P0", "P1", "P2"]},
+          "category": {"enum": ["content", "evidence", "derivation", "validation", "layout", "compile", "other"]},
+          "status": {"enum": ["open", "closed", "accepted_exception"]},
+          "description": {"type": "string", "minLength": 1},
+          "location": {"type": "string", "minLength": 1},
+          "resolution": {"type": ["string", "null"]},
+          "verified_by": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "dimension": {
+      "type": "object",
+      "required": ["status", "notes", "evidence_ids"],
+      "properties": {
+        "status": {"enum": ["pass", "fail", "not_applicable"]},
+        "notes": {"type": "string", "minLength": 1},
+        "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

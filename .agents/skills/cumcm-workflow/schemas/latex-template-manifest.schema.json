@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/latex-template-manifest.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["template_id", "template_version", "mode", "engine", "competition", "competition_year", "official_compliance", "main_path", "metadata_path", "section_files", "subproblem_sections", "required_files", "placeholder_markers", "template_source"],
+  "properties": {
+    "artifact_type": {"const": "latex_template_manifest"},
+    "template_id": {"type": "string", "minLength": 1},
+    "template_version": {"const": "0.3.0"},
+    "mode": {"enum": ["generic_ctex", "official_package_adapter"]},
+    "engine": {"enum": ["xelatex", "lualatex", "pdflatex"]},
+    "competition": {"const": "CUMCM"},
+    "competition_year": {"type": "integer", "minimum": 2000},
+    "official_compliance": {"enum": ["unverified", "verified_against_current_rules"]},
+    "official_template_source": {"type": ["string", "null"]},
+    "main_path": {"type": "string", "minLength": 1},
+    "metadata_path": {"type": "string", "minLength": 1},
+    "section_files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "subproblem_sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["subproblem_id", "path"],
+        "properties": {
+          "subproblem_id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "required_files": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "placeholder_markers": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "template_source": {"type": "string", "minLength": 1}
+  }
+}

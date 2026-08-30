@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run v0.2 CUMCM workflow checks and write a machine-readable report."""
+"""Run v0.3 CUMCM workflow checks and write a machine-readable report."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from workflow_checks import PROFILES, STAGES, check_project
+from workflow_checks import GATE_MODES, PROFILES, STAGES, check_project
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate v0.2 workflow contracts. A passing result establishes "
+            "Validate v0.3 workflow contracts. A passing result establishes "
             "traceability and recorded evidence, not mathematical correctness."
         )
     )
@@ -24,6 +24,12 @@ def main() -> int:
     selection.add_argument("--stage", choices=STAGES)
     selection.add_argument("--all", action="store_true", help="validate through delivery")
     parser.add_argument("--profile", choices=sorted(PROFILES), default="strict")
+    parser.add_argument(
+        "--gate-mode",
+        choices=sorted(GATE_MODES),
+        default="enforce",
+        help="preflight allows review-only findings to return 0; enforce requires accepted human gates",
+    )
     parser.add_argument(
         "--report",
         type=Path,
@@ -37,13 +43,13 @@ def main() -> int:
         parser.error(f"project is not a directory: {project}")
     stage = "delivery" if args.all else args.stage
     try:
-        findings, summary = check_project(project, stage, args.profile)
+        findings, summary = check_project(project, stage, args.profile, args.gate_mode)
     except (OSError, ValueError) as exc:
         print(f"validator failure: {exc}", file=sys.stderr)
         return 2
 
     payload = {
-        "report_version": "0.2.0",
+        "report_version": "0.3.0",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project_root": str(project),
         "summary": summary,
@@ -65,8 +71,9 @@ def main() -> int:
         f"checked through {stage} ({args.profile}): "
         f"{counts['error']} error(s), {counts['warning']} warning(s), {counts['info']} info"
     )
+    print(f"gate status: {summary['gate_status']} ({args.gate_mode})")
     print(summary["evidence_boundary"])
-    return 1 if counts["error"] else 0
+    return 1 if summary["blocking_error_count"] else 0
 
 
 if __name__ == "__main__":

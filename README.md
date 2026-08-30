@@ -2,7 +2,7 @@
 
 An evidence-bounded, reproducible, Codex-native workflow for the China Undergraduate Mathematical Contest in Modeling (CUMCM).
 
-> Status: v0.2 evidence-contract implementation. Do not treat a passing workflow as proof that a model or paper is correct.
+> Status: v0.3. This release accepts only v0.3 project contracts. A passing workflow is not proof that a model or paper is correct.
 
 ## Goals
 
@@ -23,25 +23,36 @@ The repository contains one repo-scoped Codex skill at
 `.agents/skills/cumcm-workflow`. Invoke it explicitly with `$cumcm-workflow`,
 or let Codex select it when the task clearly concerns a CUMCM project.
 
-## Version 0.2
+## Version 0.3
 
-Version 0.2 provides:
+Version 0.3 provides:
 
-- a concise workflow router;
-- stage-specific references;
-- eleven versioned JSON Schemas covering workflow state and the ten evidence artifacts;
-- a vertical evidence chain from official facts through capabilities, models, runs, results, claims, and figures;
-- deterministic checks for local schemas, hashes, source traceability, model ownership, real run outputs, exact result locators, cross-question consistency, strong-claim certificates, figure provenance, and delivery;
-- `strict` and `sprint` profiles that share non-negotiable evidence gates;
-- stable diagnostic IDs and a machine-readable validation report;
-- a minimal XeLaTeX template;
-- executable regressions based on a known policy-scope failure mode.
+- a paper plan with reference review, Claims-Evidence Matrix, nine-part per-question argument chains, and figure jobs;
+- separate content, layout, and final-QA reviews bound to exact paper bytes;
+- quality-triggered revision snapshots and P0/P1/P2 issue tracking;
+- a machine-readable compile receipt bound to the reviewed PDF and delivery summary;
+- append-only, artifact-bound human decisions instead of silently editable approval fields;
+- `preflight` and `enforce` gate modes, so automation can prepare a human review without weakening evidence failures;
+- a modular CTeX paper scaffold with generated per-question sections, explicit placeholders, and an official-format review gate.
+
+The seven workflow stages and the evidence chain from official facts through capabilities, models, runs, results, claims, figures, and delivery remain unchanged.
 
 Final `model-xray` auditing remains an explicit, deferred hook rather than an automatic step.
 
 Hash checks are artifact-specific: official inputs, run records declared as `formal_input` or `claim_bearing_output`, and frozen delivery files remain blocking. Auxiliary, intermediate, and diagnostic run files may omit hashes; editing-stage figure drift and redundant byte-size mismatches are warnings. Digests are recorded and compared automatically, not manually inspected.
 
-See [docs/v0.2-design.md](docs/v0.2-design.md) for contract fields, evidence boundaries, profile behavior, migration rules, and release criteria.
+See [docs/v0.3-design.md](docs/v0.3-design.md) for the complete design and [docs/workflow-contract.md](docs/workflow-contract.md) for stage gates.
+
+Initialize the paper scaffold after `PAPER_PLAN.json` and `PROBLEM_FACTS.json` agree on every subproblem:
+
+```bash
+python3 .agents/skills/cumcm-workflow/scripts/init_latex_paper.py \
+  --project /path/to/project \
+  --competition-year 2026 \
+  --title "论文题目"
+```
+
+The bundled scaffold is a submission-neutral writing structure. Before delivery, compare it with the current official competition package and record `official_compliance=verified_against_current_rules` with the exact source used.
 
 ## Validate a project
 
@@ -49,10 +60,11 @@ See [docs/v0.2-design.md](docs/v0.2-design.md) for contract fields, evidence bou
 python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
   --project /path/to/project \
   --stage validation \
-  --profile strict
+  --profile strict \
+  --gate-mode enforce
 ```
 
-The command writes `.cumcm/validation-report.json`. Exit code `0` means the implemented structural, execution, numerical-trace, semantic-contract, and visual-review gates found no errors. It is not a mathematical correctness certificate.
+The command writes `.cumcm/validation-report.json`. `preflight` may return zero with `gate_status=awaiting_review` only when all remaining errors are human-gate items. `enforce` requires those approvals as well. Neither mode is a mathematical correctness certificate.
 
 ## Quick validation
 

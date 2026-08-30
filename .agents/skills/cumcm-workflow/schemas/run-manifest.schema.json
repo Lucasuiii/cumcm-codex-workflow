@@ -27,7 +27,7 @@
   "$defs": {
     "input_file_record": {
       "type": "object",
-      "required": ["path", "size", "media_type"],
+      "required": ["path", "size", "media_type", "evidence_role"],
       "properties": {
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -48,7 +48,7 @@
     },
     "output_file_record": {
       "type": "object",
-      "required": ["path", "size", "media_type"],
+      "required": ["path", "size", "media_type", "evidence_role"],
       "properties": {
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},

@@ -1,39 +1,72 @@
 # CUMCM Codex Workflow
 
+English | [简体中文](README.zh-CN.md)
+
 An evidence-bounded, reproducible, Codex-native workflow for the China Undergraduate Mathematical Contest in Modeling (CUMCM).
 
-> Status: v0.4. This release accepts only v0.4 project contracts. A passing workflow is not proof that a model or paper is correct.
+> Current release: **v0.4**. This Skill accepts only v0.4 project contracts. Passing its checks proves workflow consistency, not that a mathematical model or paper is correct.
 
-## Goals
+## What v0.4 is designed to do
 
-- Keep the official problem statement and attachments as the factual source of record.
-- Separate problem interpretation, model choice, computation, validation, and writing.
-- Preserve runnable code, logs, environment metadata, machine-readable results, and claim evidence.
-- Pause for human review at consequential modeling decisions.
-- Resume from files on disk instead of relying on chat history.
+- Start a complete contest workspace from user-supplied official files in one Codex conversation.
+- Keep official sources, modeling decisions, executed computation, claims, figures, and delivery artifacts traceable.
+- Stop at explicit human gates instead of silently choosing consequential interpretations or approving its own work.
+- Route computation through a separate, user-selected review task before validation.
+- Produce a judge-facing LaTeX/PDF paper while keeping internal IDs, evidence states, local paths, and workflow language in sidecar files.
+- Deliver the reviewed PDF, editable LaTeX source, and computation source as three distinct outputs.
+- Resume from files on disk rather than depending on chat history.
 
 ## Workflow
 
 ```text
+official files
+     |
+     v
 intake -> problem analysis -> model design -> computation
-       -> validation -> paper writing -> compile and delivery
+                                                   |
+                                                   v
+                                      independent review package
+                                                   |
+                                      user routes it to a separate reviewer
+                                                   |
+                                                   v
+validation -> paper -> delivery -> optional user-requested final audit
 ```
 
-The repository contains one repo-scoped Codex skill at
-`.agents/skills/cumcm-workflow`. Invoke it explicitly with `$cumcm-workflow`,
-or let Codex select it when the task clearly concerns a CUMCM project.
+The seven project stages remain `intake`, `problem-analysis`, `model-design`, `computation`, `validation`, `paper`, and `delivery`. Independent review is a blocking gate between computation and validation, not an eighth self-approved stage.
 
-## Initialize from a Codex conversation
+| Stage | Main outcome | Human gate |
+|---|---|---|
+| Intake | official inputs, source inventory, and project state | confirm that the official input set is complete |
+| Problem analysis | facts, interpretation, assumptions, and required capabilities | approve the problem interpretation and coverage |
+| Model design | model contract, alternatives, dependencies, and claim scope | choose the model and its declared limits |
+| Computation | runnable code, preserved runs, logs, and indexed results | approve the executed evidence entering review |
+| Independent review gate | conclusion-withheld package plus a structured review result | user selects a separate human or model reviewer; same-conversation approval is rejected |
+| Validation | evidence states, consistency checks, limitations, and claim ledger | approve what the evidence actually supports |
+| Paper | modular LaTeX, traceability sidecars, content/layout/visible-text QA | approve the exact reviewed manuscript and close critical issues |
+| Delivery | compile receipt, final PDF, editable LaTeX, computation source, and manifest | confirm official-format compliance and the final package |
 
-Put the official statement, attachments, and current rules in one directory when possible. In Codex, invoke the Skill and provide that path:
+Conflicts return to the earliest stage that owns them. Downstream files are preserved, but dependent stages cannot pass until the conflict is resolved and reviewed again.
+
+## Start from a Codex conversation
+
+Open this repository as a Codex project, keep the official statement, attachments, and current rules accessible locally, then give Codex their path:
 
 ```text
-请初始化国赛项目，官方题目和附件在 /absolute/path/to/2026B题。
+Use $cumcm-workflow to initialize a CUMCM project. The official problem and attachments are at /absolute/path/to/2026B.
 ```
 
-Codex automatically selects `$cumcm-workflow`, inspects the path, infers the project ID, chooses a safe sibling workspace when you did not name one, and runs the initializer. You may name the Skill explicitly, but it is not required when the request is clear. Codex then reports the new absolute project path and the intake artifacts awaiting review. It asks only when the source is missing, the competition identifier cannot be inferred, or the target would overwrite existing work.
+The explicit `$cumcm-workflow` name is optional when the request clearly concerns a CUMCM project. Codex will:
 
-The underlying command remains available for maintainers and automation:
+1. inspect only the supplied file or directory;
+2. infer a stable project ID such as `CUMCM-2026-B`;
+3. choose a safe sibling workspace unless a target is supplied;
+4. run the initializer with absolute paths;
+5. report the created workspace and stop at the intake review gate.
+
+It asks for clarification only when the source is missing, the year/problem identifier remains ambiguous, or the target would overwrite existing work. Initialization copies but never edits or deletes the official source files. It does not invent facts, models, results, reviews, or approvals.
+
+Maintainers and automation may call the underlying initializer directly:
 
 ```bash
 python3 .agents/skills/cumcm-workflow/scripts/init_project.py \
@@ -42,43 +75,29 @@ python3 .agents/skills/cumcm-workflow/scripts/init_project.py \
   --official /path/to/official-files
 ```
 
-Initialization creates the complete v0.4 workspace, copies and inventories official inputs, writes state and machine-readable initialization/preflight reports, and stops at the intake review gate. It never infers problem facts, models, evidence, or approvals.
+## Independent review before validation
 
-## Version 0.4
+After computation, the Skill builds `validation/independent-review-package/`. The package contains the necessary official inputs, problem and model contracts, computation entry points, run records, executed outputs, a review request, and a dedicated reviewer Skill. The originating task stops and asks the user to route this package to a separate task or human reviewer.
 
-Version 0.4 provides:
+The raw review is preserved verbatim, while `INDEPENDENT_REVIEW_RESULT.json` records reviewer identity, scope, findings, and verdict. A review performed in the originating conversation cannot pass the gate. A fresh task using the same model is marked as correlated rather than fully independent. Review acceptance is evidence, not mathematical proof.
 
-- a user-routed independent-review package before validation, with a dedicated reviewer Skill and a hard prohibition on same-conversation self-approval;
-- a paper plan with reference review, Claims-Evidence Matrix, reader narrative, per-question argument chains, and figure jobs;
-- a contest-oriented modular CTeX scaffold with mechanism-first explanations and no default table of contents;
-- separate content, layout, visible-text, and final-QA reviews bound to the exact reviewed PDF;
-- a sidecar traceability contract that keeps internal IDs, evidence states, local paths, and gate vocabulary out of the final paper;
-- quality-triggered revision snapshots and P0/P1/P2 issue tracking;
-- a machine-readable compile receipt and a mandatory three-part delivery: final PDF, editable LaTeX source, and computation source;
-- append-only, artifact-bound human decisions instead of silently editable approval fields;
-- `preflight` and `enforce` gate modes, so automation can prepare a human review without weakening evidence failures;
-- an official-material boundary: missing rules or templates must be requested from the user rather than filled by autonomous web search.
+## Reader-facing paper and delivery
 
-The seven workflow stages and the evidence chain from official facts through capabilities, models, runs, results, claims, figures, and delivery remain unchanged.
+The bundled `cumcm-contest-ctex` scaffold is modular and question-driven. It does not add a table of contents by default. Each question is expected to explain the task interpretation, mechanism, model, algorithm, results, validation, and limitations as a coherent argument.
 
-Final `model-xray` auditing remains an explicit, deferred hook rather than an automatic step.
+Internal traceability stays in `PAPER_TRACEABILITY.json` and related sidecars. The visible-text check blocks internal IDs, evidence-state enums, local paths, and workflow gate language from leaking into the final PDF. Excessive decimal precision and number-dense sentences require revision or an explicit reader-facing justification.
 
-SHA-256 is a narrow background identity mechanism, not a user-facing review ritual. It is required only for official sources, formal run inputs, claim-bearing outputs, approval scope, and the exact reviewed final PDF. Ordinary source files, editing-stage figures, logs, caches, documentation, and support files do not require a digest. Decision events are not hash-chained, and people review artifacts and summaries rather than digest strings.
+Delivery requires three separately addressable roles:
 
-See [docs/v0.4-design.md](docs/v0.4-design.md) for the complete design and [docs/workflow-contract.md](docs/workflow-contract.md) for stage gates. [docs/v0.3-design.md](docs/v0.3-design.md) is retained only as historical documentation.
+1. the exact reviewed final PDF;
+2. editable LaTeX source, including its entry point and required assets;
+3. computation source, including its entry point and rerun instructions.
 
-Initialize the paper scaffold after `PAPER_PLAN.json` and `PROBLEM_FACTS.json` agree on every subproblem:
+The scaffold is submission-neutral. Final compliance must be checked against current official rules or templates supplied by the user. Missing official material blocks delivery; it does not authorize autonomous web search or submission.
 
-```bash
-python3 .agents/skills/cumcm-workflow/scripts/init_latex_paper.py \
-  --project /path/to/project \
-  --competition-year 2026 \
-  --title "论文题目"
-```
+## Validation and gate modes
 
-The bundled scaffold is a submission-neutral writing structure. Before delivery, compare it with the current official competition package and record `official_compliance=verified_against_current_rules` with the exact source used.
-
-## Validate a project
+From the repository root:
 
 ```bash
 python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
@@ -88,9 +107,47 @@ python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
   --gate-mode enforce
 ```
 
-The command writes `.cumcm/validation-report.json`. `preflight` may return zero with `gate_status=awaiting_review` only when all remaining errors are human-gate items. `enforce` requires those approvals as well. Neither mode is a mathematical correctness certificate.
+The report is written to `.cumcm/validation-report.json`.
 
-## Quick validation
+- `strict` is the default. `sprint` may reduce exploration and polish, but never source, execution, consistency, evidence, or delivery checks.
+- `preflight` distinguishes “automation complete, waiting for a person” from a failed build. It may return zero with `gate_status=awaiting_review` only when every remaining finding is a human decision.
+- `enforce` is required before a stage is treated as passed.
+
+Neither mode certifies mathematical correctness, statistical validity, or global optimality.
+
+## Narrow SHA-256 policy
+
+SHA-256 is a background identity mechanism only where byte-for-byte identity matters:
+
+- user-supplied official sources;
+- formal computation inputs and claim-bearing outputs;
+- the small set of stage contracts covered by an explicit approval;
+- the exact final PDF reviewed for paper QA and delivery.
+
+Ordinary code, LaTeX, documentation, editing-stage figures, logs, caches, temporary files, and support files do not require digests. Decision events are append-only but are not hash-chained. Reviewers approve artifacts and summaries, not 64-character hash strings.
+
+## Repository layout
+
+```text
+.agents/skills/cumcm-workflow/
+├── SKILL.md                 # workflow router and invariants
+├── agents/openai.yaml       # Codex UI metadata and invocation policy
+├── references/              # stage guides and evidence contracts
+├── schemas/                 # v0.4 machine-readable contracts
+├── scripts/                 # initializer, validators, packaging, and paper checks
+└── assets/
+    ├── independent-review/  # reviewer Skill and request template
+    └── latex-template/      # modular CTeX paper scaffold
+docs/                        # architecture, workflow contract, and v0.4 design
+examples/                    # regression contracts without official contest assets
+tests/                       # contract and behavior tests
+```
+
+No official contest problems, private trial artifacts, generated workspaces, or submission files belong in this repository.
+
+## Development validation
+
+Requirements: Python 3.10+ and `jsonschema>=4.18`.
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -98,17 +155,24 @@ python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   .agents/skills/cumcm-workflow
 ```
 
-The second command uses the bundled Codex validator when available. The Python package requires Python 3.10+ and `jsonschema>=4.18`.
+The second command uses the bundled Codex validator when available. Real paper releases still require XeLaTeX compilation and rendered-page visual review; a passing unit test is not visual QA.
 
-## Provenance and licensing
+## Documentation
 
-This repository is independently designed and authored for reproducible CUMCM work. See [docs/provenance.md](docs/provenance.md).
+- [v0.4 design](docs/v0.4-design.md)
+- [workflow contract](docs/workflow-contract.md)
+- [architecture](docs/architecture.md)
+- [limitations](docs/limitations.md)
+- [provenance](docs/provenance.md)
+- [v0.3 historical design](docs/v0.3-design.md)
 
-No open-source license is granted yet. A license will be selected after the provenance review is complete.
+Final `model-xray` auditing remains an optional, user-invoked hook rather than an automatic stage.
 
-## Safety boundary
+## Safety and licensing
 
 - Never invent empirical data to make a preferred method look better.
-- Never call an approximate or restricted-class result globally optimal without a certificate and a declared scope.
+- Never call an approximate or restricted-class result globally optimal without a certificate and declared scope.
 - Never write paper claims that are not traceable to executed outputs.
-- Never treat schema checks, keyword matches, or solver success flags as proof of mathematical correctness.
+- Never treat schemas, keyword checks, solver success flags, or reviewer acceptance as proof of mathematical correctness.
+
+This repository is independently designed and authored for reproducible CUMCM work. No open-source license is granted yet; a license will be selected after the provenance review is complete.

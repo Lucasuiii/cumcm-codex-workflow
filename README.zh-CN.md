@@ -175,4 +175,4 @@ python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
 - 不得在论文中写入无法追溯到实际运行输出的主张。
 - 不得把 Schema、关键词检查、求解器成功标志或复核通过当作数学正确性的证明。
 
-本仓库是面向可复现 CUMCM 工作的独立设计与实现。目前尚未授予开源许可证；将在来源审查完成后再选择许可证。
+本仓库是面向可复现 CUMCM 工作的独立设计与实现，采用 [MIT License](LICENSE) 开源。

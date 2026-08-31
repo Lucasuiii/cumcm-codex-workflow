@@ -175,4 +175,4 @@ Final `model-xray` auditing remains an optional, user-invoked hook rather than a
 - Never write paper claims that are not traceable to executed outputs.
 - Never treat schemas, keyword checks, solver success flags, or reviewer acceptance as proof of mathematical correctness.
 
-This repository is independently designed and authored for reproducible CUMCM work. No open-source license is granted yet; a license will be selected after the provenance review is complete.
+This repository is independently designed and authored for reproducible CUMCM work. It is released under the [MIT License](LICENSE).

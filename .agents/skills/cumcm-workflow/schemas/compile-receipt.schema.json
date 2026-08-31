@@ -34,10 +34,9 @@
     },
     "layout_review_binding": {
       "type": "object",
-      "required": ["quality_report_path", "quality_report_sha256", "pdf_sha256"],
+      "required": ["quality_report_path", "pdf_sha256"],
       "properties": {
         "quality_report_path": {"type": "string", "minLength": 1},
-        "quality_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "pdf_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       },
       "additionalProperties": false

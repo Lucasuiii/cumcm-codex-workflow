@@ -3,9 +3,19 @@
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/paper-plan.schema.json",
   "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
   "type": "object",
-  "required": ["reference_reviews", "claims_evidence_matrix", "question_argument_chains", "figure_plan", "page_budget"],
+  "required": ["reference_reviews", "reader_narrative", "claims_evidence_matrix", "question_argument_chains", "figure_plan", "page_budget"],
   "properties": {
     "artifact_type": {"const": "paper_plan"},
+    "reader_narrative": {
+      "type": "object",
+      "required": ["one_sentence_contribution", "judge_reading_path", "internal_metadata_policy"],
+      "properties": {
+        "one_sentence_contribution": {"type": "string", "minLength": 1},
+        "judge_reading_path": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "internal_metadata_policy": {"const": "sidecar_only"}
+      },
+      "additionalProperties": false
+    },
     "reference_reviews": {
       "type": "array",
       "items": {

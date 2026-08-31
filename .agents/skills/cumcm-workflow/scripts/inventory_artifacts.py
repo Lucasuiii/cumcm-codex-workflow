@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a deterministic SHA-256 inventory without modifying source files."""
+"""Inventory official input files and record automatic byte identity without modifying them."""
 
 from __future__ import annotations
 
@@ -60,6 +60,11 @@ def inventory_sources(source_root: Path, project_root: Path, output: Path, origi
                 "sha256": sha256(path),
                 "media_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
                 "origin": origin,
+                "acquisition": {
+                    "method": "user_local_file" if origin in {"official", "organizer_attachment", "external_reference"} else "derived",
+                    "provided_by_user": origin in {"official", "organizer_attachment", "external_reference"},
+                    "source_reference": None,
+                },
                 "authoritative_for": [],
                 "derived_from": None,
                 "mutable": origin not in {"official", "organizer_attachment"},
@@ -91,11 +96,11 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     payload = {
-        "schema_version": "0.3.0",
+        "schema_version": "0.4.0",
         "artifact_type": "source_manifest",
         "project_id": args.project_id,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.3.0"},
+        "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.4.0"},
         "review": {
             "decision": "unreviewed",
             "reviewer": None,

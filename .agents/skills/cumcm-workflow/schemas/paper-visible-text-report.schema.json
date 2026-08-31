@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/paper-visible-text-report.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["paper_artifact", "status", "blocking_matches", "review_flags"],
+  "properties": {
+    "artifact_type": {"const": "paper_visible_text_report"},
+    "paper_artifact": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "status": {"enum": ["blocked", "needs_review", "pass"]},
+    "blocking_matches": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/match"}
+    },
+    "review_flags": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/match"},
+          {
+            "type": "object",
+            "required": ["resolution_status", "resolution"],
+            "properties": {
+              "resolution_status": {"enum": ["open", "closed", "accepted_exception"]},
+              "resolution": {"type": ["string", "null"]}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "match": {
+      "type": "object",
+      "required": ["rule_id", "location", "excerpt"],
+      "properties": {
+        "rule_id": {"type": "string", "minLength": 1},
+        "location": {"type": "string", "minLength": 1},
+        "excerpt": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

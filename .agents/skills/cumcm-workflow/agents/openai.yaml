@@ -1,6 +1,6 @@
 interface:
   display_name: "CUMCM Workflow"
   short_description: "可复现的国赛建模、计算、写作与交付流程"
-  default_prompt: "Use $cumcm-workflow to start or resume a reproducible CUMCM project from the official problem files."
+  default_prompt: "使用 $cumcm-workflow，把我提供的官方题目文件路径自主初始化为一个新的国赛项目，并停在 intake 人工审查门禁。"
 policy:
   allow_implicit_invocation: true

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic v0.3 contract and cross-artifact checks.
+"""Deterministic v0.4 contract and cross-artifact checks.
 
 The checks in this module establish structure, provenance, recorded execution,
 and declared relationships. They do not establish mathematical correctness.
@@ -48,7 +48,7 @@ EVIDENCE_STATES = {
 REVIEW_DECISIONS = {"unreviewed", "accepted", "revision_requested"}
 PROFILES = {"strict", "sprint"}
 GATE_MODES = {"preflight", "enforce"}
-WORKFLOW_VERSION = "0.3.0"
+WORKFLOW_VERSION = "0.4.0"
 PAPER_LAYER_NAMES = {
     "problem_interpretation",
     "assumptions_boundaries",
@@ -69,12 +69,16 @@ CONTRACT_PATHS = {
     "model": "model/MODEL_CONTRACT.json",
     "cross_question": "model/CROSS_QUESTION_LEDGER.json",
     "results": "results/RESULTS_INDEX.json",
+    "independent_review_package": "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json",
+    "independent_review_result": "validation/INDEPENDENT_REVIEW_RESULT.json",
     "claims": "validation/CLAIM_LEDGER.json",
     "figures": "figures/FIGURE_MANIFEST.json",
     "paper_plan": "paper/PAPER_PLAN.json",
     "latex_template": "paper/LATEX_TEMPLATE_MANIFEST.json",
     "paper_quality": "paper/PAPER_QUALITY_REPORT.json",
     "paper_revisions": "paper/PAPER_REVISION_LOG.json",
+    "paper_traceability": "paper/PAPER_TRACEABILITY.json",
+    "paper_visible_text": "paper/PAPER_VISIBLE_TEXT_REPORT.json",
     "delivery": "delivery/DELIVERY_MANIFEST.json",
     "compile_receipt": "delivery/COMPILE_RECEIPT.json",
 }
@@ -99,12 +103,12 @@ STAGE_CONTRACTS = {
         "cross_question",
         "results",
     ),
-    "validation": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims"),
-    "paper": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions"),
-    "delivery": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions", "delivery", "compile_receipt"),
+    "validation": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims"),
+    "paper": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions", "paper_traceability", "paper_visible_text"),
+    "delivery": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_revisions", "paper_traceability", "paper_visible_text", "delivery", "compile_receipt"),
 }
 
-PAPER_CONTRACTS = ("paper_plan", "latex_template", "paper_quality", "paper_revisions")
+PAPER_CONTRACTS = ("paper_plan", "latex_template", "paper_quality", "paper_revisions", "paper_traceability", "paper_visible_text")
 
 SCHEMA_FILES = {
     "state": "workflow-state.schema.json",
@@ -114,12 +118,16 @@ SCHEMA_FILES = {
     "model": "model-contract.schema.json",
     "cross_question": "cross-question-ledger.schema.json",
     "results": "results-index.schema.json",
+    "independent_review_package": "independent-review-package.schema.json",
+    "independent_review_result": "independent-review-result.schema.json",
     "claims": "claim-ledger.schema.json",
     "figures": "figure-manifest.schema.json",
     "paper_plan": "paper-plan.schema.json",
     "latex_template": "latex-template-manifest.schema.json",
     "paper_quality": "paper-quality-report.schema.json",
     "paper_revisions": "paper-revision-log.schema.json",
+    "paper_traceability": "paper-traceability.schema.json",
+    "paper_visible_text": "paper-visible-text-report.schema.json",
     "delivery": "delivery-manifest.schema.json",
     "compile_receipt": "compile-receipt.schema.json",
     "run": "run-manifest.schema.json",
@@ -325,7 +333,7 @@ def check_envelope(data: Any, expected_type: str, stage: str, path: str) -> list
                 "structural",
                 stage,
                 path,
-                "schema_version must be 0.3.0",
+                "schema_version must be 0.4.0",
                 pointer="/schema_version",
             )
         )
@@ -364,7 +372,7 @@ def check_state(data: Any, path: str) -> list[Finding]:
     if not isinstance(data, dict):
         return findings
     if data.get("workflow_version") != WORKFLOW_VERSION:
-        findings.append(finding("STATE-E001", "error", "structural", "intake", path, "workflow_version must be 0.3.0"))
+        findings.append(finding("STATE-E001", "error", "structural", "intake", path, "workflow_version must be 0.4.0"))
     current = data.get("current_stage")
     stages = data.get("stages")
     if current not in STAGES:
@@ -400,7 +408,7 @@ def check_sources(data: Any, root: Path, path: str) -> list[Finding]:
     if not isinstance(data, dict):
         return findings
     sources = data.get("sources")
-    findings.extend(require_fields(sources, ("path", "sha256", "origin"), ("source_id",), "SOURCE", "intake", path))
+    findings.extend(require_fields(sources, ("path", "origin", "acquisition"), ("source_id",), "SOURCE", "intake", path))
     for index, source in enumerate(as_list(sources)):
         if not isinstance(source, dict):
             continue
@@ -413,12 +421,22 @@ def check_sources(data: Any, root: Path, path: str) -> list[Finding]:
         if not file_path.is_file():
             findings.append(finding("SOURCE-E007", "error", "structural", "intake", path, f"missing source file: {rel}", related_ids=[ident]))
             continue
-        if source.get("sha256") != sha256(file_path):
-            findings.append(finding("SOURCE-E008", "error", "structural", "intake", path, f"source hash mismatch: {rel}", related_ids=[ident]))
+        recorded_hash = source.get("sha256")
+        if source.get("origin") in {"official", "organizer_attachment"}:
+            if not nonempty(recorded_hash) or recorded_hash != sha256(file_path):
+                findings.append(finding("SOURCE-E008", "error", "structural", "intake", path, f"official source hash is missing or mismatched: {rel}", related_ids=[ident]))
+        elif nonempty(recorded_hash) and recorded_hash != sha256(file_path):
+            findings.append(finding("SOURCE-W008", "warning", "structural", "intake", path, f"optional source hash is stale: {rel}", related_ids=[ident]))
         if source.get("size") is not None and source.get("size") != file_path.stat().st_size:
             findings.append(finding("SOURCE-W009", "warning", "structural", "intake", path, f"source size metadata is stale: {rel}", related_ids=[ident]))
         if source.get("mutable") is not False and source.get("origin") in {"official", "organizer_attachment"}:
             findings.append(finding("SOURCE-E010", "error", "semantic", "intake", path, f"official source must declare mutable=false: {ident}"))
+        acquisition = source.get("acquisition")
+        if source.get("origin") in {"official", "organizer_attachment"}:
+            if not isinstance(acquisition, dict) or acquisition.get("provided_by_user") is not True:
+                findings.append(finding("SOURCE-E011", "error", "semantic", "intake", path, f"official material must be supplied or explicitly identified by the user: {ident}"))
+            elif acquisition.get("method") not in {"user_local_file", "user_supplied_url"}:
+                findings.append(finding("SOURCE-E012", "error", "semantic", "intake", path, f"official material cannot come from autonomous search: {ident}"))
     return findings
 
 
@@ -664,6 +682,67 @@ def check_results(
     return findings
 
 
+def check_independent_review_package(data: Any, root: Path, path: str) -> list[Finding]:
+    findings = check_envelope(data, "independent_review_package", "validation", path)
+    if not isinstance(data, dict):
+        return findings
+    if data.get("conclusions_withheld") is not True:
+        findings.append(finding("IREVIEW-E001", "error", "semantic", "validation", path, "independent review package must withhold the originating conclusions as far as practical"))
+    for field in ("package_root", "review_skill_path", "review_request_path"):
+        target = safe_project_path(root, data.get(field))
+        if target is None or not target.exists():
+            findings.append(finding("IREVIEW-E002", "error", "structural", "validation", path, f"independent review package is missing {field}: {data.get(field)}"))
+    files = as_list(data.get("files"))
+    roles = {str(item.get("role")) for item in files if isinstance(item, dict)}
+    required_roles = {"official_input", "problem_contract", "model_contract", "computation_source", "run_record", "executed_output", "review_instruction"}
+    missing_roles = sorted(required_roles - roles)
+    if missing_roles:
+        findings.append(finding("IREVIEW-E003", "error", "structural", "validation", path, f"independent review package misses roles: {', '.join(missing_roles)}"))
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        target = safe_project_path(root, item.get("path"))
+        if target is None or not target.is_file() or target.stat().st_size == 0:
+            findings.append(finding("IREVIEW-E004", "error", "structural", "validation", path, f"review package file is missing: {item.get('path')}"))
+    selection = data.get("reviewer_selection")
+    if not isinstance(selection, dict) or selection.get("status") != "user_confirmed":
+        findings.append(finding("IREVIEW-E005", "error", "semantic", "validation", path, "the user must choose and confirm the reviewer before validation", gate_only=True))
+    elif not all(nonempty(selection.get(field)) for field in ("selected_by", "reviewer", "task_ref")):
+        findings.append(finding("IREVIEW-E006", "error", "structural", "validation", path, "confirmed reviewer selection lacks user, reviewer, or task reference"))
+    return findings
+
+
+def check_independent_review_result(data: Any, root: Path, path: str, package: Any) -> list[Finding]:
+    findings = check_envelope(data, "independent_review_result", "validation", path)
+    if not isinstance(data, dict):
+        return findings
+    expected_package = CONTRACT_PATHS["independent_review_package"]
+    if data.get("package_manifest_path") != expected_package:
+        findings.append(finding("IREVIEW-E007", "error", "structural", "validation", path, "independent review result names a different package manifest"))
+    context = data.get("reviewer_context")
+    if not isinstance(context, dict):
+        return findings
+    if context.get("selected_by_user") is not True:
+        findings.append(finding("IREVIEW-E008", "error", "semantic", "validation", path, "independent reviewer was not selected by the user"))
+    if context.get("different_conversation") is not True or context.get("reviewer_kind") == "same_context_model" or context.get("independence_grade") == "correlated_self_review":
+        findings.append(finding("IREVIEW-E009", "error", "semantic", "validation", path, "same-context or correlated self-review cannot satisfy the independent review gate"))
+    selection = package.get("reviewer_selection") if isinstance(package, dict) else None
+    if isinstance(selection, dict):
+        if selection.get("reviewer") != context.get("reviewer") or selection.get("task_ref") != context.get("task_ref"):
+            findings.append(finding("IREVIEW-E010", "error", "structural", "validation", path, "imported reviewer identity does not match the user-confirmed selection"))
+    raw_path = safe_project_path(root, data.get("raw_review_path"))
+    if raw_path is None or not raw_path.is_file() or raw_path.stat().st_size == 0:
+        findings.append(finding("IREVIEW-E011", "error", "structural", "validation", path, "raw independent review is missing"))
+    if data.get("verdict") == "revision_requested":
+        findings.append(finding("IREVIEW-E012", "error", "semantic", "model-design", path, "independent review requested revision; return to the earliest affected stage"))
+    elif data.get("verdict") == "inconclusive":
+        findings.append(finding("IREVIEW-E013", "error", "semantic", "validation", path, "independent review is inconclusive"))
+    review = data.get("review")
+    if not isinstance(review, dict) or review.get("decision") != "accepted":
+        findings.append(finding("IREVIEW-E014", "error", "semantic", "validation", path, "imported independent review must be acknowledged at the user gate", gate_only=True))
+    return findings
+
+
 def claim_certificate_types(text: str) -> set[str]:
     return {name for name, pattern in STRONG_CLAIM_PATTERNS.items() if pattern.search(text)}
 
@@ -746,7 +825,7 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
     if not isinstance(data, dict):
         return findings
     figures = data.get("figures")
-    findings.extend(require_fields(figures, ("kind", "purpose", "path", "sha256", "caption_claims", "visual_review"), ("figure_id",), "FIGURE", "paper", path))
+    findings.extend(require_fields(figures, ("kind", "purpose", "path", "caption_claims", "visual_review"), ("figure_id",), "FIGURE", "paper", path))
     for figure in as_list(figures):
         if not isinstance(figure, dict):
             continue
@@ -755,7 +834,7 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
         figure_path = safe_project_path(root, figure.get("path"))
         if figure_path is None or not figure_path.is_file() or figure_path.stat().st_size == 0:
             findings.append(finding("FIGURE-E010", "error", "visual", "paper", path, f"missing or empty figure file: {figure.get('path')}", related_ids=[ident]))
-        elif figure.get("sha256") != sha256(figure_path):
+        elif nonempty(figure.get("sha256")) and figure.get("sha256") != sha256(figure_path):
             findings.append(finding("FIGURE-W011", "warning", "structural", "paper", path, f"figure changed since its manifest entry was recorded: {figure.get('path')}", related_ids=[ident]))
         for result_id in as_list(figure.get("result_ids")):
             if result_id not in result_ids:
@@ -778,8 +857,29 @@ def check_delivery(data: Any, root: Path, path: str, profile: str) -> list[Findi
         return findings
     if data.get("profile") != profile:
         findings.append(finding("DELIVERY-E001", "error", "structural", "delivery", path, "delivery profile does not match requested profile"))
+    source_policy = data.get("source_policy")
+    if not isinstance(source_policy, dict) or source_policy.get("mode") != "user_supplied_only" or source_policy.get("network_lookup_performed") is not False:
+        findings.append(finding("DELIVERY-E013", "error", "semantic", "delivery", path, "delivery compliance review must use user-supplied materials only and must not perform autonomous network lookup"))
+    elif as_list(source_policy.get("missing_user_materials")):
+        findings.append(finding("DELIVERY-E014", "error", "semantic", "delivery", path, "delivery is blocked_missing_user_material; request the listed materials from the user"))
+    deliverables = data.get("deliverables")
+    required_roles = {"final_pdf", "editable_latex_source", "computation_source"}
+    if not isinstance(deliverables, dict) or not required_roles.issubset(deliverables):
+        findings.append(finding("DELIVERY-E015", "error", "structural", "delivery", path, "delivery must declare final PDF, editable LaTeX source, and computation source"))
+    else:
+        for role in sorted(required_roles):
+            item = deliverables.get(role)
+            if not isinstance(item, dict):
+                continue
+            artifact_path = safe_project_path(root, item.get("path"))
+            entrypoint = safe_project_path(root, item.get("entrypoint"))
+            if artifact_path is None or not artifact_path.exists() or entrypoint is None or not entrypoint.is_file():
+                findings.append(finding("DELIVERY-E016", "error", "structural", "delivery", path, f"declared {role} or its entrypoint is missing"))
+            if role != "final_pdf" and item.get("editable") is not True:
+                findings.append(finding("DELIVERY-E017", "error", "semantic", "delivery", path, f"{role} must be delivered in editable form"))
+
     files = data.get("files")
-    findings.extend(require_fields(files, ("path", "role", "sha256", "size"), ("path",), "DELIVERY", "delivery", path))
+    findings.extend(require_fields(files, ("path", "role", "size"), ("path",), "DELIVERY", "delivery", path))
     for item in as_list(files):
         if not isinstance(item, dict):
             continue
@@ -788,8 +888,12 @@ def check_delivery(data: Any, root: Path, path: str, profile: str) -> list[Findi
         if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
             findings.append(finding("DELIVERY-E006", "error", "structural", "delivery", path, f"missing or empty delivery file: {rel}"))
             continue
-        if item.get("sha256") != sha256(file_path):
-            findings.append(finding("DELIVERY-E007", "error", "structural", "delivery", path, f"delivery hash mismatch: {rel}"))
+        recorded_hash = item.get("sha256")
+        if item.get("role") == "final_pdf":
+            if not nonempty(recorded_hash) or recorded_hash != sha256(file_path):
+                findings.append(finding("DELIVERY-E007", "error", "structural", "delivery", path, f"final PDF hash is missing or mismatched: {rel}"))
+        elif nonempty(recorded_hash) and recorded_hash != sha256(file_path):
+            findings.append(finding("DELIVERY-W007", "warning", "structural", "delivery", path, f"optional delivery hash is stale: {rel}"))
         if item.get("size") != file_path.stat().st_size:
             findings.append(finding("DELIVERY-W008", "warning", "structural", "delivery", path, f"delivery size metadata is stale: {rel}"))
     compile_record = data.get("compile")
@@ -929,6 +1033,10 @@ def check_paper_quality(
         if isinstance(artifact, dict) and (artifact.get("path") != bound_path or artifact.get("sha256") != bound_hash):
             findings.append(finding("PQUALITY-E004", "error", "structural", "paper", path, f"{name} review is bound to a different paper version"))
     if isinstance(content, dict):
+        for dimension in ("abstract_synthesis", "conclusion_directness", "internal_metadata_separation", "reference_style_transfer"):
+            item = content.get(dimension)
+            if isinstance(item, dict) and item.get("status") == "fail":
+                findings.append(finding("PQUALITY-E015", "error", "semantic", "paper", path, f"content review failed: {dimension}"))
         reviewed_questions = ids(content.get("questions"), "subproblem_id")
         missing = sorted(subproblem_ids - reviewed_questions)
         if missing:
@@ -937,7 +1045,16 @@ def check_paper_quality(
             if not isinstance(question, dict):
                 continue
             subproblem = item_id(question, "subproblem_id")
-            for dimension in ("argument_chain", "derivation", "result_interpretation", "validation_strength", "limitations"):
+            for dimension in (
+                "argument_chain",
+                "mechanism_explanation",
+                "derivation",
+                "result_interpretation",
+                "reader_facing_language",
+                "numerical_presentation",
+                "validation_strength",
+                "limitations",
+            ):
                 item = question.get(dimension)
                 if not isinstance(item, dict):
                     continue
@@ -961,6 +1078,51 @@ def check_paper_quality(
         open_p0 = [item_id(issue, "issue_id") for issue in issues if isinstance(issue, dict) and issue.get("severity") == "P0" and issue.get("status") == "open"]
         if open_p0:
             findings.append(finding("PQUALITY-E011", "error", "semantic", "paper", path, f"final paper has open P0 issues: {', '.join(open_p0)}", related_ids=open_p0))
+        if isinstance(content, dict) and content.get("reviewer_kind") == "same_context_model":
+            findings.append(finding("PQUALITY-E013", "error", "semantic", "paper", path, "same-context content self-review cannot finalize the reader-facing paper", gate_only=True))
+        if isinstance(final_qa, dict) and final_qa.get("reviewer_kind") == "same_context_model":
+            findings.append(finding("PQUALITY-E014", "error", "semantic", "paper", path, "same-context final QA cannot finalize the paper", gate_only=True))
+    return findings
+
+
+def check_paper_traceability(data: Any, path: str, claim_ids: set[str], result_ids: set[str]) -> list[Finding]:
+    findings = check_envelope(data, "paper_traceability", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    if data.get("visible_id_policy") != "prohibited":
+        findings.append(finding("PTRACE-E001", "error", "semantic", "paper", path, "paper traceability must keep internal IDs out of visible content"))
+    for entry in as_list(data.get("entries")):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("render_policy") != "sidecar_only":
+            findings.append(finding("PTRACE-E002", "error", "semantic", "paper", path, f"traceability entry is not sidecar-only: {entry.get('anchor')}"))
+        for claim_id in as_list(entry.get("claim_ids")):
+            if claim_id not in claim_ids:
+                findings.append(finding("PTRACE-E003", "error", "structural", "paper", path, f"traceability entry names unknown claim: {claim_id}"))
+        for result_id in as_list(entry.get("result_ids")):
+            if result_id not in result_ids:
+                findings.append(finding("PTRACE-E004", "error", "structural", "paper", path, f"traceability entry names unknown result: {result_id}"))
+    return findings
+
+
+def check_paper_visible_text(data: Any, root: Path, path: str, paper_quality: Any) -> list[Finding]:
+    findings = check_envelope(data, "paper_visible_text_report", "paper", path)
+    if not isinstance(data, dict):
+        return findings
+    artifact = data.get("paper_artifact")
+    findings.extend(check_bound_artifact(root, artifact, "paper", path, "PTEXT"))
+    quality_artifact = paper_quality.get("paper_artifact") if isinstance(paper_quality, dict) else None
+    if isinstance(artifact, dict) and isinstance(quality_artifact, dict) and artifact != quality_artifact:
+        findings.append(finding("PTEXT-E004", "error", "structural", "paper", path, "visible-text report is bound to a different PDF than the paper quality report"))
+    if as_list(data.get("blocking_matches")):
+        findings.append(finding("PTEXT-E005", "error", "semantic", "paper", path, "final PDF exposes workflow metadata, internal IDs, evidence states, or local paths"))
+    open_flags = [flag for flag in as_list(data.get("review_flags")) if isinstance(flag, dict) and flag.get("resolution_status") == "open"]
+    if open_flags:
+        findings.append(finding("PTEXT-E006", "error", "semantic", "paper", path, "visible-text report has unresolved numerical-presentation flags"))
+    if isinstance(paper_quality, dict) and paper_quality.get("paper_status") == "final":
+        review = data.get("review")
+        if not isinstance(review, dict) or review.get("decision") != "accepted":
+            findings.append(finding("PTEXT-E007", "error", "semantic", "paper", path, "final visible-text report requires reader-facing review", gate_only=True))
     return findings
 
 
@@ -1106,8 +1268,8 @@ def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any,
     binding = data.get("layout_review_binding")
     if isinstance(binding, dict):
         quality_path = safe_project_path(root, binding.get("quality_report_path"))
-        if quality_path is None or not quality_path.is_file() or binding.get("quality_report_sha256") != sha256(quality_path):
-            findings.append(finding("COMPILE-E007", "error", "structural", "delivery", path, "layout-review binding does not match the current paper quality report"))
+        if quality_path is None or not quality_path.is_file():
+            findings.append(finding("COMPILE-E007", "error", "structural", "delivery", path, "layout-review binding does not point to the current paper quality report"))
         if binding.get("pdf_sha256") != selected.get("pdf_sha256"):
             findings.append(finding("COMPILE-E008", "error", "structural", "delivery", path, "layout-review binding names a different PDF version"))
     if isinstance(quality_report, dict):
@@ -1128,19 +1290,13 @@ def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any,
     return findings
 
 
-def canonical_event_hash(event: dict[str, Any]) -> str:
-    payload = {key: value for key, value in event.items() if key != "event_hash"}
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def stage_scope_paths(root: Path, stage: str) -> list[str]:
     mapping = {
         "intake": [CONTRACT_PATHS["sources"]],
         "problem-analysis": [CONTRACT_PATHS["facts"], CONTRACT_PATHS["capabilities"]],
         "model-design": [CONTRACT_PATHS["model"], CONTRACT_PATHS["cross_question"]],
         "computation": [CONTRACT_PATHS["results"]],
-        "validation": [CONTRACT_PATHS["claims"]],
+        "validation": [CONTRACT_PATHS["independent_review_package"], CONTRACT_PATHS["independent_review_result"], CONTRACT_PATHS["claims"]],
         "paper": [CONTRACT_PATHS["figures"], *(CONTRACT_PATHS[name] for name in PAPER_CONTRACTS)],
         "delivery": [CONTRACT_PATHS["delivery"], CONTRACT_PATHS["compile_receipt"]],
     }
@@ -1154,10 +1310,9 @@ def check_decision_log(root: Path, state: Any) -> list[Finding]:
     path = ".cumcm/decisions.jsonl"
     log_path = root / path
     if not log_path.is_file():
-        return [finding("DECISION-E001", "error", "semantic", "intake", path, "v0.3 project has no append-only decision log", gate_only=True)]
+        return [finding("DECISION-E001", "error", "semantic", "intake", path, "v0.4 project has no append-only decision log", gate_only=True)]
     findings: list[Finding] = []
     events: list[dict[str, Any]] = []
-    previous_hash: str | None = None
     seen_ids: set[str] = set()
     for line_number, raw in enumerate(log_path.read_text(encoding="utf-8").splitlines(), 1):
         if not raw.strip():
@@ -1174,12 +1329,6 @@ def check_decision_log(root: Path, state: Any) -> list[Finding]:
         if not decision_id or decision_id in seen_ids:
             findings.append(finding("DECISION-E004", "error", "structural", "intake", path, f"missing or duplicate decision_id on line {line_number}: {decision_id}"))
         seen_ids.add(decision_id)
-        if event.get("previous_event_hash") != previous_hash:
-            findings.append(finding("DECISION-E005", "error", "structural", "intake", path, f"broken previous_event_hash on line {line_number}", related_ids=[decision_id]))
-        expected_hash = canonical_event_hash(event)
-        if event.get("event_hash") != expected_hash:
-            findings.append(finding("DECISION-E006", "error", "structural", "intake", path, f"event hash mismatch on line {line_number}", related_ids=[decision_id]))
-        previous_hash = event.get("event_hash") if nonempty(event.get("event_hash")) else None
         if event.get("stage") not in STAGES or event.get("decision") not in {"accepted", "revision_requested"}:
             findings.append(finding("DECISION-E007", "error", "structural", "intake", path, f"invalid stage or decision on line {line_number}", related_ids=[decision_id]))
         for required_field in ("reviewer", "task_turn_ref", "user_visible_summary", "decided_at"):
@@ -1258,12 +1407,16 @@ def owning_stage_for_contract(name: str) -> str:
         "model": "model-design",
         "cross_question": "model-design",
         "results": "computation",
+        "independent_review_package": "validation",
+        "independent_review_result": "validation",
         "claims": "validation",
         "figures": "paper",
         "paper_plan": "paper",
         "latex_template": "paper",
         "paper_quality": "paper",
         "paper_revisions": "paper",
+        "paper_traceability": "paper",
+        "paper_visible_text": "paper",
         "delivery": "delivery",
         "compile_receipt": "delivery",
     }[name]
@@ -1329,7 +1482,7 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         findings.extend(check_state(contracts["state"], CONTRACT_PATHS["state"]))
     for name, contract in contracts.items():
         if isinstance(contract, dict) and contract.get("schema_version") != WORKFLOW_VERSION:
-            findings.append(finding("PROJECT-E004", "error", "structural", owning_stage_for_contract(name), CONTRACT_PATHS[name], "contract schema_version must be 0.3.0"))
+            findings.append(finding("PROJECT-E004", "error", "structural", owning_stage_for_contract(name), CONTRACT_PATHS[name], "contract schema_version must be 0.4.0"))
     if "sources" in contracts:
         findings.extend(check_schema(contracts["sources"], "sources", "intake", CONTRACT_PATHS["sources"]))
         findings.extend(check_sources(contracts["sources"], root, CONTRACT_PATHS["sources"]))
@@ -1408,6 +1561,12 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
                 for result_id in as_list(capability.get("result_ids")):
                     if result_id not in result_ids:
                         findings.append(finding("RESULT-E013", "error", "structural", "computation", CONTRACT_PATHS["capabilities"], f"{capability_id} expects unknown result: {result_id}", related_ids=[capability_id, str(result_id)]))
+    if "independent_review_package" in contracts:
+        findings.extend(check_schema(contracts["independent_review_package"], "independent_review_package", "validation", CONTRACT_PATHS["independent_review_package"]))
+        findings.extend(check_independent_review_package(contracts["independent_review_package"], root, CONTRACT_PATHS["independent_review_package"]))
+    if "independent_review_result" in contracts:
+        findings.extend(check_schema(contracts["independent_review_result"], "independent_review_result", "validation", CONTRACT_PATHS["independent_review_result"]))
+        findings.extend(check_independent_review_result(contracts["independent_review_result"], root, CONTRACT_PATHS["independent_review_result"], contracts.get("independent_review_package")))
     if "figures" in contracts:
         findings.extend(check_schema(contracts["figures"], "figures", "paper", CONTRACT_PATHS["figures"]))
         if isinstance(contracts["figures"], dict):
@@ -1441,6 +1600,12 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         paper_artifact = quality.get("paper_artifact") if isinstance(quality, dict) else None
         issues = quality.get("open_issues") if isinstance(quality, dict) else []
         findings.extend(check_revision_log(contracts["paper_revisions"], root, CONTRACT_PATHS["paper_revisions"], paper_artifact, issues))
+    if "paper_traceability" in contracts:
+        findings.extend(check_schema(contracts["paper_traceability"], "paper_traceability", "paper", CONTRACT_PATHS["paper_traceability"]))
+        findings.extend(check_paper_traceability(contracts["paper_traceability"], CONTRACT_PATHS["paper_traceability"], claim_ids, result_ids))
+    if "paper_visible_text" in contracts:
+        findings.extend(check_schema(contracts["paper_visible_text"], "paper_visible_text", "paper", CONTRACT_PATHS["paper_visible_text"]))
+        findings.extend(check_paper_visible_text(contracts["paper_visible_text"], root, CONTRACT_PATHS["paper_visible_text"], contracts.get("paper_quality")))
     if "delivery" in contracts:
         findings.extend(check_schema(contracts["delivery"], "delivery", "delivery", CONTRACT_PATHS["delivery"]))
         findings.extend(check_delivery(contracts["delivery"], root, CONTRACT_PATHS["delivery"], profile))

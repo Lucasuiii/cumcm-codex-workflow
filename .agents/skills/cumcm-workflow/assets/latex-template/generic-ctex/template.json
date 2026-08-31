@@ -1,7 +1,7 @@
 {
-  "template_id": "cumcm-generic-ctex",
-  "template_version": "0.3.0",
+  "template_id": "cumcm-contest-ctex",
+  "template_version": "0.4.0",
   "engine": "xelatex",
-  "mode": "generic_ctex",
-  "description": "Modular, submission-neutral CTeX scaffold for CUMCM paper development."
+  "mode": "contest_ctex",
+  "description": "Reader-facing modular CTeX template for CUMCM papers, with no default table of contents and no rendered workflow metadata."
 }

@@ -8,14 +8,13 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from workflow_checks import STAGES, canonical_event_hash, safe_project_path, sha256, stage_scope_paths
+from workflow_checks import STAGES, safe_project_path, sha256, stage_scope_paths
 
 
 def load_events(path: Path) -> list[dict]:
     if not path.exists():
         return []
     events: list[dict] = []
-    previous_hash = None
     seen: set[str] = set()
     for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not raw.strip():
@@ -26,12 +25,7 @@ def load_events(path: Path) -> list[dict]:
         decision_id = event.get("decision_id")
         if not isinstance(decision_id, str) or not decision_id or decision_id in seen:
             raise ValueError(f"line {line_number} has a missing or duplicate decision_id")
-        if event.get("previous_event_hash") != previous_hash:
-            raise ValueError(f"line {line_number} breaks the hash chain")
-        if event.get("event_hash") != canonical_event_hash(event):
-            raise ValueError(f"line {line_number} has an invalid event hash")
         seen.add(decision_id)
-        previous_hash = event["event_hash"]
         events.append(event)
     return events
 
@@ -75,9 +69,7 @@ def main() -> int:
         "task_turn_ref": args.task_turn_ref,
         "user_visible_summary": args.user_visible_summary,
         "decided_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "previous_event_hash": events[-1]["event_hash"] if events else None,
     }
-    event["event_hash"] = canonical_event_hash(event)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")

@@ -13,7 +13,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from init_latex_paper import initialize  # noqa: E402
-from test_v03_paper_quality import build_valid_v03_project  # noqa: E402
+from test_v03_paper_quality import build_valid_v04_project  # noqa: E402
 from test_workflow_core import envelope, write_json  # noqa: E402
 from workflow_checks import check_project  # noqa: E402
 
@@ -22,7 +22,7 @@ def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_i
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.3.0",
+            "workflow_version": "0.4.0",
             "current_stage": "paper",
             "stages": {
                 "intake": "passed",
@@ -55,6 +55,11 @@ def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_i
     plan.update(
         {
             "reference_reviews": [],
+            "reader_narrative": {
+                "one_sentence_contribution": "Synthetic reader-facing paper plan.",
+                "judge_reading_path": ["problem", "model", "result"],
+                "internal_metadata_policy": "sidecar_only",
+            },
             "claims_evidence_matrix": [],
             "question_argument_chains": [
                 {
@@ -118,7 +123,7 @@ class LatexTemplateTests(unittest.TestCase):
     def test_final_placeholder_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             section = root / "paper" / "sections" / "10_question_q1.tex"
             section.write_text(section.read_text(encoding="utf-8") + "\n% CUMCM-TODO\n", encoding="utf-8")
             findings, _ = check_project(root, "paper", "strict")
@@ -127,7 +132,7 @@ class LatexTemplateTests(unittest.TestCase):
     def test_delivery_requires_current_official_format_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "LATEX_TEMPLATE_MANIFEST.json"
             manifest = json.loads(path.read_text(encoding="utf-8"))
             manifest["official_compliance"] = "unverified"
@@ -140,7 +145,7 @@ class LatexTemplateTests(unittest.TestCase):
     def test_compile_engine_must_match_template(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "delivery" / "COMPILE_RECEIPT.json"
             receipt = json.loads(path.read_text(encoding="utf-8"))
             receipt["attempts"][0]["engine"] = "lualatex"

@@ -7,8 +7,8 @@
   "properties": {
     "artifact_type": {"const": "latex_template_manifest"},
     "template_id": {"type": "string", "minLength": 1},
-    "template_version": {"const": "0.3.0"},
-    "mode": {"enum": ["generic_ctex", "official_package_adapter"]},
+    "template_version": {"const": "0.4.0"},
+    "mode": {"enum": ["contest_ctex", "official_package_adapter"]},
     "engine": {"enum": ["xelatex", "lualatex", "pdflatex"]},
     "competition": {"const": "CUMCM"},
     "competition_year": {"type": "integer", "minimum": 2000},

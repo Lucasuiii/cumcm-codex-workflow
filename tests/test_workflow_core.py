@@ -34,11 +34,11 @@ def review(decision: str = "accepted") -> dict:
 
 def envelope(kind: str) -> dict:
     return {
-        "schema_version": "0.3.0",
+        "schema_version": "0.4.0",
         "artifact_type": kind,
         "project_id": "SYNTHETIC-2024-B",
         "updated_at": "2026-08-30T12:00:00Z",
-        "producer": {"kind": "script", "name": "test-fixture", "version": "0.3.0"},
+        "producer": {"kind": "script", "name": "test-fixture", "version": "0.4.0"},
         "review": review(),
     }
 
@@ -84,7 +84,7 @@ def build_valid_project(root: Path) -> None:
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.3.0",
+            "workflow_version": "0.4.0",
             "current_stage": "validation",
             "stages": {
                 "intake": "passed",
@@ -108,6 +108,7 @@ def build_valid_project(root: Path) -> None:
             "size": len(source_bytes),
             "media_type": "text/plain",
             "origin": "official",
+            "acquisition": {"method": "user_local_file", "provided_by_user": True, "source_reference": None},
             "authoritative_for": ["FACT-Q1-001"],
             "derived_from": None,
             "mutable": False,
@@ -243,6 +244,64 @@ def build_valid_project(root: Path) -> None:
     ]
     write_json(root, "results/RESULTS_INDEX.json", results)
 
+    package_dir = root / "validation" / "independent-review-package"
+    package_dir.mkdir(parents=True)
+    package_materials = {
+        "official.txt": ("official_input", b"official"),
+        "problem.json": ("problem_contract", b"{}"),
+        "model.json": ("model_contract", b"{}"),
+        "solve.py": ("computation_source", b"print('review')\n"),
+        "run.json": ("run_record", b"{}"),
+        "output.json": ("executed_output", b"{}"),
+        "SKILL.md": ("review_instruction", b"# reviewer skill\n"),
+    }
+    package_files = []
+    for name, (role, payload) in package_materials.items():
+        target = package_dir / name
+        target.write_bytes(payload)
+        package_files.append({"path": f"validation/independent-review-package/{name}", "role": role, "size": len(payload)})
+    (package_dir / "REVIEW_REQUEST.md").write_text("# Review request\n", encoding="utf-8")
+    package_files.append({"path": "validation/independent-review-package/REVIEW_REQUEST.md", "role": "review_instruction", "size": (package_dir / "REVIEW_REQUEST.md").stat().st_size})
+    independent_package = envelope("independent_review_package")
+    independent_package.update(
+        {
+            "package_root": "validation/independent-review-package",
+            "review_skill_path": "validation/independent-review-package/SKILL.md",
+            "review_request_path": "validation/independent-review-package/REVIEW_REQUEST.md",
+            "conclusions_withheld": True,
+            "files": package_files,
+            "reviewer_selection": {
+                "status": "user_confirmed",
+                "selected_by": "fixture-user",
+                "reviewer": "fixture-reviewer",
+                "model": "fixture-model",
+                "task_ref": "fixture-independent-task",
+            },
+        }
+    )
+    write_json(root, "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json", independent_package)
+    (root / "validation" / "INDEPENDENT_REVIEW_RAW.md").write_text("# Independent review\nNo fatal findings.\n", encoding="utf-8")
+    independent_result = envelope("independent_review_result")
+    independent_result.update(
+        {
+            "package_manifest_path": "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json",
+            "reviewer_context": {
+                "reviewer_kind": "different_model",
+                "reviewer": "fixture-reviewer",
+                "model": "fixture-model",
+                "task_ref": "fixture-independent-task",
+                "different_conversation": True,
+                "selected_by_user": True,
+                "independence_grade": "independent",
+            },
+            "verdict": "accepted",
+            "findings": [],
+            "raw_review_path": "validation/INDEPENDENT_REVIEW_RAW.md",
+            "reviewed_files": ["problem/official/problem.txt", "code/solve.py"],
+        }
+    )
+    write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", independent_result)
+
     figures = envelope("figure_manifest")
     figures["figures"] = [
         {
@@ -293,10 +352,16 @@ def build_valid_project(root: Path) -> None:
     delivery.update(
         {
             "profile": "strict",
+            "source_policy": {"mode": "user_supplied_only", "network_lookup_performed": False, "missing_user_materials": []},
+            "deliverables": {
+                "final_pdf": {"path": "paper/paper.pdf", "entrypoint": "paper/paper.pdf", "editable": False},
+                "editable_latex_source": {"path": "paper", "entrypoint": "paper/main.tex", "editable": True},
+                "computation_source": {"path": "code", "entrypoint": "code/solve.py", "editable": True},
+            },
             "files": [
                 {
                     "path": "paper/paper.pdf",
-                    "role": "submission_pdf",
+                    "role": "final_pdf",
                     "sha256": digest(paper_bytes),
                     "size": len(paper_bytes),
                 }
@@ -361,11 +426,15 @@ class WorkflowCoreTests(unittest.TestCase):
             "cross-question-ledger.schema.json",
             "delivery-manifest.schema.json",
             "figure-manifest.schema.json",
+            "independent-review-package.schema.json",
+            "independent-review-result.schema.json",
             "latex-template-manifest.schema.json",
             "model-contract.schema.json",
             "paper-plan.schema.json",
             "paper-quality-report.schema.json",
             "paper-revision-log.schema.json",
+            "paper-traceability.schema.json",
+            "paper-visible-text-report.schema.json",
             "problem-facts.schema.json",
             "results-index.schema.json",
             "run-manifest.schema.json",
@@ -425,6 +494,37 @@ class WorkflowCoreTests(unittest.TestCase):
                 [item for item in findings if item.severity == "error" and item.rule_id != "DECISION-E010"],
                 [],
             )
+
+    def test_nonofficial_source_may_omit_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            reference = root / "problem" / "references" / "background.txt"
+            reference.parent.mkdir(parents=True)
+            reference.write_text("user supplied background reference\n", encoding="utf-8")
+            path = root / "problem" / "SOURCE_MANIFEST.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["sources"].append(
+                {
+                    "source_id": "SRC-REF-001",
+                    "path": "problem/references/background.txt",
+                    "size": reference.stat().st_size,
+                    "media_type": "text/plain",
+                    "origin": "external_reference",
+                    "acquisition": {
+                        "method": "user_local_file",
+                        "provided_by_user": True,
+                        "source_reference": None,
+                    },
+                    "authoritative_for": [],
+                    "derived_from": None,
+                    "mutable": True,
+                }
+            )
+            write_json(root, "problem/SOURCE_MANIFEST.json", data)
+            findings, _ = self.run_check(root)
+            source_errors = [item for item in findings if item.rule_id.startswith("SOURCE-") and item.severity == "error"]
+            self.assertEqual(source_errors, [])
 
     def test_fact_cannot_cite_an_unknown_source(self):
         with tempfile.TemporaryDirectory() as temp:

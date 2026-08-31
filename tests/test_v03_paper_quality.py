@@ -52,7 +52,7 @@ def record_decisions(root: Path, stages: tuple[str, ...]) -> None:
             raise AssertionError(completed.stdout + completed.stderr)
 
 
-def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = None) -> None:
+def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = None) -> None:
     build_valid_project(root)
     paper_path = root / "paper" / "paper.pdf"
     paper_artifact = {"path": "paper/paper.pdf", "sha256": digest_file(paper_path)}
@@ -75,6 +75,11 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
                     "non_transferable_limits": ["different problem and data"],
                 }
             ],
+            "reader_narrative": {
+                "one_sentence_contribution": "The paper solves the declared restricted policy problem and explains the scope.",
+                "judge_reading_path": ["problem", "mechanism", "model", "result", "meaning", "validation", "boundary"],
+                "internal_metadata_policy": "sidecar_only",
+            },
             "claims_evidence_matrix": [
                 {
                     "claim_id": "CLM-Q1-001",
@@ -143,13 +148,21 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
                 "decision": "accepted",
                 "reviewer": "fixture-reviewer",
                 "reviewed_at": "2026-08-30T12:00:00Z",
+                "reviewer_kind": "external_reviewer",
                 "artifact": paper_artifact,
+                "abstract_synthesis": dict(dimension),
+                "conclusion_directness": dict(dimension),
+                "internal_metadata_separation": dict(dimension),
+                "reference_style_transfer": dict(dimension),
                 "questions": [
                     {
                         "subproblem_id": "Q1",
                         "argument_chain": dict(dimension),
+                        "mechanism_explanation": dict(dimension),
                         "derivation": dict(dimension),
                         "result_interpretation": dict(dimension),
+                        "reader_facing_language": dict(dimension),
+                        "numerical_presentation": dict(dimension),
                         "validation_strength": dict(dimension),
                         "limitations": dict(dimension),
                     }
@@ -159,6 +172,7 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
                 "decision": "accepted",
                 "reviewer": "fixture-reviewer",
                 "reviewed_at": "2026-08-30T12:00:00Z",
+                "reviewer_kind": "human_user",
                 "artifact": paper_artifact,
                 "page_count": 1,
                 "rendered_pages": [1],
@@ -170,6 +184,7 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
                 "decision": "accepted",
                 "reviewer": "fixture-reviewer",
                 "reviewed_at": "2026-08-30T12:00:00Z",
+                "reviewer_kind": "human_user",
                 "artifact": paper_artifact,
                 "notes": "Final bytes match the reviewed artifact.",
             },
@@ -181,6 +196,34 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
     revisions = envelope("paper_revision_log")
     revisions.update({"initial_snapshot": paper_artifact, "revisions": []})
     write_json(root, "paper/PAPER_REVISION_LOG.json", revisions)
+
+    traceability = envelope("paper_traceability")
+    traceability.update(
+        {
+            "visible_id_policy": "prohibited",
+            "entries": [
+                {
+                    "anchor": "q1-main-result",
+                    "paper_location": "Q1 results",
+                    "claim_ids": ["CLM-Q1-001"],
+                    "result_ids": ["RES-Q1-001"],
+                    "render_policy": "sidecar_only",
+                }
+            ],
+        }
+    )
+    write_json(root, "paper/PAPER_TRACEABILITY.json", traceability)
+
+    visible_text = envelope("paper_visible_text_report")
+    visible_text.update(
+        {
+            "paper_artifact": paper_artifact,
+            "status": "pass",
+            "blocking_matches": [],
+            "review_flags": [],
+        }
+    )
+    write_json(root, "paper/PAPER_VISIBLE_TEXT_REPORT.json", visible_text)
 
     receipt = envelope("compile_receipt")
     receipt.update(
@@ -206,7 +249,6 @@ def build_valid_v03_project(root: Path, *, decisions: tuple[str, ...] | None = N
             ],
             "layout_review_binding": {
                 "quality_report_path": "paper/PAPER_QUALITY_REPORT.json",
-                "quality_report_sha256": digest_file(root / "paper" / "PAPER_QUALITY_REPORT.json"),
                 "pdf_sha256": paper_artifact["sha256"],
             },
         }
@@ -242,20 +284,20 @@ def set_state(root: Path, current: str, paper_status: str, delivery_status: str)
     write_json(root, ".cumcm/state.json", data)
 
 
-class V03PaperQualityTests(unittest.TestCase):
-    def test_complete_v03_project_passes(self):
+class V04PaperQualityTests(unittest.TestCase):
+    def test_complete_v04_project_passes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             findings, summary = check_project(root, "delivery", "strict")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
-            self.assertEqual(summary["workflow_version"], "0.3.0")
+            self.assertEqual(summary["workflow_version"], "0.4.0")
             self.assertEqual(summary["gate_status"], "passed")
 
     def test_missing_argument_layer_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             del data["question_argument_chains"][0]["layers"]["derivation"]
@@ -266,7 +308,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_not_applicable_layer_requires_rationale(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             layer = data["question_argument_chains"][0]["layers"]["derivation"]
@@ -278,7 +320,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_required_planned_figure_must_exist(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["figure_plan"].append(
@@ -299,7 +341,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_quantitative_figure_plan_needs_claim_and_result_role(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["figure_plan"][0]["claim_ids"] = []
@@ -310,7 +352,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_review_only_failure_is_preflight_zero_and_enforce_nonzero(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
+            build_valid_v04_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
             set_state(root, "paper", "awaiting_review", "not_started")
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -340,7 +382,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_strict_layout_review_must_cover_all_pages(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["layout_review"]["page_count"] = 2
@@ -351,7 +393,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_final_paper_cannot_have_open_p0_issue(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["open_issues"] = [{"issue_id": "ISSUE-001", "severity": "P0", "category": "content", "status": "open", "description": "Missing derivation", "location": "Q1", "resolution": None, "verified_by": None}]
@@ -362,7 +404,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_revision_snapshot_hash_drift_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_REVISION_LOG.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["initial_snapshot"]["sha256"] = "0" * 64
@@ -373,7 +415,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_closed_issue_requires_verified_revision(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["open_issues"] = [{"issue_id": "ISSUE-001", "severity": "P1", "category": "content", "status": "closed", "description": "Clarify result scope", "location": "Q1", "resolution": "Edited prose", "verified_by": "fixture-reviewer"}]
@@ -384,7 +426,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_compile_receipt_page_count_mismatch_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "delivery" / "COMPILE_RECEIPT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["attempts"][0]["page_count"] = 2
@@ -392,23 +434,20 @@ class V03PaperQualityTests(unittest.TestCase):
             findings, _ = check_project(root, "delivery", "strict")
             self.assertIn("COMPILE-E010", {item.rule_id for item in findings})
 
-    def test_decision_hash_chain_tampering_blocks(self):
+    def test_v04_decision_log_does_not_add_event_hash_chain(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / ".cumcm" / "decisions.jsonl"
             lines = path.read_text(encoding="utf-8").splitlines()
-            event = json.loads(lines[0])
-            event["user_visible_summary"] = "tampered"
-            lines[0] = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            findings, _ = check_project(root, "delivery", "strict")
-            self.assertIn("DECISION-E006", {item.rule_id for item in findings})
+            events = [json.loads(line) for line in lines]
+            self.assertTrue(events)
+            self.assertTrue(all("event_hash" not in event and "previous_event_hash" not in event for event in events))
 
     def test_stale_decision_scope_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["updated_at"] = "2026-08-30T13:00:00Z"
@@ -419,7 +458,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_record_decision_rejects_duplicate_id(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root)
+            build_valid_v04_project(root)
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -449,7 +488,7 @@ class V03PaperQualityTests(unittest.TestCase):
     def test_missing_stage_decision_is_review_only_in_preflight(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v03_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
+            build_valid_v04_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
             set_state(root, "paper", "passed", "not_started")
             findings, summary = check_project(root, "paper", "strict", "preflight")
             self.assertIn("DECISION-E008", {item.rule_id for item in findings})

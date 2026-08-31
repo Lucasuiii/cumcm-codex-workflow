@@ -11,7 +11,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["source_id", "path", "sha256", "size", "media_type", "origin", "authoritative_for", "derived_from", "mutable"],
+        "required": ["source_id", "path", "size", "media_type", "origin", "acquisition", "authoritative_for", "derived_from", "mutable"],
         "properties": {
           "source_id": {"type": "string", "minLength": 1},
           "path": {"type": "string", "minLength": 1},
@@ -19,10 +19,26 @@
           "size": {"type": "integer", "minimum": 0},
           "media_type": {"type": "string", "minLength": 1},
           "origin": {"enum": ["official", "organizer_attachment", "external_reference", "team_created"]},
+          "acquisition": {
+            "type": "object",
+            "required": ["method", "provided_by_user"],
+            "properties": {
+              "method": {"enum": ["user_local_file", "user_supplied_url", "derived"]},
+              "provided_by_user": {"type": "boolean"},
+              "source_reference": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          },
           "authoritative_for": {"type": "array", "items": {"type": "string"}},
           "derived_from": {"type": ["string", "null"]},
           "mutable": {"type": "boolean"}
         },
+        "allOf": [
+          {
+            "if": {"properties": {"origin": {"enum": ["official", "organizer_attachment"]}}, "required": ["origin"]},
+            "then": {"required": ["sha256"]}
+          }
+        ],
         "additionalProperties": true
       }
     }

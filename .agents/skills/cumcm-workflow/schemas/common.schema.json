@@ -28,7 +28,7 @@
       "type": "object",
       "required": ["schema_version", "artifact_type", "project_id", "updated_at", "producer", "review"],
       "properties": {
-        "schema_version": {"const": "0.3.0"},
+        "schema_version": {"const": "0.4.0"},
         "artifact_type": {"type": "string", "minLength": 1},
         "project_id": {"type": "string", "minLength": 1},
         "updated_at": {"type": "string", "minLength": 1},

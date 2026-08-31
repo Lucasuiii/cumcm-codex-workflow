@@ -6,14 +6,18 @@ Create a read-only inventory of the official problem, attachments, and current c
 
 ## Procedure
 
-1. Copy inputs into `problem/official/` without altering originals.
-2. Run `inventory_artifacts.py` with `--project-root` and `--project-id` to create `problem/SOURCE_MANIFEST.json` with stable source IDs, relative paths, sizes, SHA-256 hashes, and origin.
-3. Classify origin as `official`, `organizer_attachment`, `external_reference`, or `team_created`. Record derived files separately with their parent source ID.
-4. Render PDFs when formulas, tables, or layout carry meaning. Use extracted text only for navigation.
-5. Initialize `.cumcm/state.json` with exact workflow version `0.3.0`. Set `intake: passed` only after every expected official attachment is accounted for, preflight passes, and the artifact-bound decision is recorded.
+1. The user-facing initializer is conversational. When the user supplies an official file or directory path and asks to initialize, inspect that path read-only, infer the project ID from the available context, choose a safe sibling workspace when no target is specified, and run `scripts/init_project.py` for them. Do not ask the user to type the Python command. Ask only when the source is missing, the year/problem identifier cannot be inferred, or the proposed target is non-empty.
+
+   The script copies official inputs into `problem/official/`, creates the complete workspace and v0.4 state, writes a stable-ID source manifest, and runs intake preflight. It refuses to overwrite a non-empty project, rejects symlinked source trees, and never deletes or edits the official source. A supplied file means that file only; a supplied directory means its usable regular-file tree. Do not silently widen the source set.
+2. Review `PROJECT_BRIEF.md`, `problem/SOURCE_MANIFEST.json`, and the copied files. The initializer labels copied inputs `official`; reclassify organizer attachments, external references, or team-created files before approval when needed. Record derived files separately with their parent source ID.
+   Every source records how it was acquired. Official and organizer material must be a user-supplied local file or an explicit user-supplied URL. Never search for neighboring rules, attachments, or templates. If the expected set is incomplete, list the missing items and wait for the user.
+3. Render PDFs when formulas, tables, or layout carry meaning. Use extracted text only for navigation.
+4. Set `intake: passed` only after every expected official attachment and current competition rule file is accounted for, preflight passes, and the artifact-bound decision is recorded.
 
 Run `cumcm_check.py --stage intake --gate-mode preflight`, obtain the human decision, record it, then run `--gate-mode enforce`. Passing proves source identity and the declared inventory, not that the expected-source list is complete; a human must confirm that list.
 
-Let the inventory and validator record and compare SHA-256 automatically. The reviewer confirms the source list and origin, not the digest characters. A hash mismatch blocks intake; a byte-size mismatch is only stale metadata and should be refreshed.
+Let the inventory and validator record and compare SHA-256 automatically for official statements and organizer attachments. The reviewer confirms the source list and origin, not the digest characters. An official-source hash mismatch blocks intake; external references and team-created materials may omit hashes, and stale optional hashes are warnings. A byte-size mismatch is only stale metadata and should be refreshed.
 
 Do not run code or macros embedded in unfamiliar inputs during intake.
+
+`inventory_artifacts.py` remains available for refreshing a source manifest after an explicitly reviewed source-set change; it is not required for ordinary initialization.

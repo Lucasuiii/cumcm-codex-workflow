@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a modular v0.3 CUMCM LaTeX paper without overwriting existing work."""
+"""Initialize a modular v0.4 CUMCM LaTeX paper without overwriting existing work."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-WORKFLOW_VERSION = "0.3.0"
-TEMPLATE_ID = "cumcm-generic-ctex"
+WORKFLOW_VERSION = "0.4.0"
+TEMPLATE_ID = "cumcm-contest-ctex"
 
 
 def read_object(path: Path) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def validate_inputs(project: Path) -> tuple[dict[str, Any], dict[str, Any], dict
     facts = read_object(project / "analysis" / "PROBLEM_FACTS.json")
     plan = read_object(project / "paper" / "PAPER_PLAN.json")
     if state.get("workflow_version") != WORKFLOW_VERSION or state.get("schema_version") != WORKFLOW_VERSION:
-        raise ValueError("LaTeX initialization requires an exact v0.3 workflow state")
+        raise ValueError("LaTeX initialization requires an exact v0.4 workflow state")
     project_ids = {state.get("project_id"), facts.get("project_id"), plan.get("project_id")}
     if None in project_ids or len(project_ids) != 1:
         raise ValueError("state, problem facts, and paper plan must share one project_id")
@@ -184,7 +184,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize the canonical modular LaTeX scaffold for a v0.3 CUMCM project")
+    parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.4 CUMCM project")
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--title", default="全国大学生数学建模竞赛论文")
     parser.add_argument("--competition-year", type=int, default=datetime.now().year)

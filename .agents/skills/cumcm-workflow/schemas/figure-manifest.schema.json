@@ -10,7 +10,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["figure_id", "kind", "purpose", "path", "sha256", "result_ids", "run_ids", "axes", "transformations", "caption_claims", "paper_location", "visual_review"],
+        "required": ["figure_id", "kind", "purpose", "path", "result_ids", "run_ids", "axes", "transformations", "caption_claims", "paper_location", "visual_review"],
         "properties": {
           "figure_id": {"type": "string", "minLength": 1},
           "kind": {"enum": ["quantitative", "table", "conceptual"]},

@@ -2,7 +2,7 @@
 
 An evidence-bounded, reproducible, Codex-native workflow for the China Undergraduate Mathematical Contest in Modeling (CUMCM).
 
-> Status: v0.3. This release accepts only v0.3 project contracts. A passing workflow is not proof that a model or paper is correct.
+> Status: v0.4. This release accepts only v0.4 project contracts. A passing workflow is not proof that a model or paper is correct.
 
 ## Goals
 
@@ -23,25 +23,49 @@ The repository contains one repo-scoped Codex skill at
 `.agents/skills/cumcm-workflow`. Invoke it explicitly with `$cumcm-workflow`,
 or let Codex select it when the task clearly concerns a CUMCM project.
 
-## Version 0.3
+## Initialize from a Codex conversation
 
-Version 0.3 provides:
+Put the official statement, attachments, and current rules in one directory when possible. In Codex, invoke the Skill and provide that path:
 
-- a paper plan with reference review, Claims-Evidence Matrix, nine-part per-question argument chains, and figure jobs;
-- separate content, layout, and final-QA reviews bound to exact paper bytes;
+```text
+请初始化国赛项目，官方题目和附件在 /absolute/path/to/2026B题。
+```
+
+Codex automatically selects `$cumcm-workflow`, inspects the path, infers the project ID, chooses a safe sibling workspace when you did not name one, and runs the initializer. You may name the Skill explicitly, but it is not required when the request is clear. Codex then reports the new absolute project path and the intake artifacts awaiting review. It asks only when the source is missing, the competition identifier cannot be inferred, or the target would overwrite existing work.
+
+The underlying command remains available for maintainers and automation:
+
+```bash
+python3 .agents/skills/cumcm-workflow/scripts/init_project.py \
+  --project /path/to/new-project \
+  --project-id CUMCM-2026-B \
+  --official /path/to/official-files
+```
+
+Initialization creates the complete v0.4 workspace, copies and inventories official inputs, writes state and machine-readable initialization/preflight reports, and stops at the intake review gate. It never infers problem facts, models, evidence, or approvals.
+
+## Version 0.4
+
+Version 0.4 provides:
+
+- a user-routed independent-review package before validation, with a dedicated reviewer Skill and a hard prohibition on same-conversation self-approval;
+- a paper plan with reference review, Claims-Evidence Matrix, reader narrative, per-question argument chains, and figure jobs;
+- a contest-oriented modular CTeX scaffold with mechanism-first explanations and no default table of contents;
+- separate content, layout, visible-text, and final-QA reviews bound to the exact reviewed PDF;
+- a sidecar traceability contract that keeps internal IDs, evidence states, local paths, and gate vocabulary out of the final paper;
 - quality-triggered revision snapshots and P0/P1/P2 issue tracking;
-- a machine-readable compile receipt bound to the reviewed PDF and delivery summary;
+- a machine-readable compile receipt and a mandatory three-part delivery: final PDF, editable LaTeX source, and computation source;
 - append-only, artifact-bound human decisions instead of silently editable approval fields;
 - `preflight` and `enforce` gate modes, so automation can prepare a human review without weakening evidence failures;
-- a modular CTeX paper scaffold with generated per-question sections, explicit placeholders, and an official-format review gate.
+- an official-material boundary: missing rules or templates must be requested from the user rather than filled by autonomous web search.
 
 The seven workflow stages and the evidence chain from official facts through capabilities, models, runs, results, claims, figures, and delivery remain unchanged.
 
 Final `model-xray` auditing remains an explicit, deferred hook rather than an automatic step.
 
-Hash checks are artifact-specific: official inputs, run records declared as `formal_input` or `claim_bearing_output`, and frozen delivery files remain blocking. Auxiliary, intermediate, and diagnostic run files may omit hashes; editing-stage figure drift and redundant byte-size mismatches are warnings. Digests are recorded and compared automatically, not manually inspected.
+SHA-256 is a narrow background identity mechanism, not a user-facing review ritual. It is required only for official sources, formal run inputs, claim-bearing outputs, approval scope, and the exact reviewed final PDF. Ordinary source files, editing-stage figures, logs, caches, documentation, and support files do not require a digest. Decision events are not hash-chained, and people review artifacts and summaries rather than digest strings.
 
-See [docs/v0.3-design.md](docs/v0.3-design.md) for the complete design and [docs/workflow-contract.md](docs/workflow-contract.md) for stage gates.
+See [docs/v0.4-design.md](docs/v0.4-design.md) for the complete design and [docs/workflow-contract.md](docs/workflow-contract.md) for stage gates. [docs/v0.3-design.md](docs/v0.3-design.md) is retained only as historical documentation.
 
 Initialize the paper scaffold after `PAPER_PLAN.json` and `PROBLEM_FACTS.json` agree on every subproblem:
 

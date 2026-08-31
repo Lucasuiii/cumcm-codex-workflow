@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/independent-review-package.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["package_root", "review_skill_path", "review_request_path", "conclusions_withheld", "files", "reviewer_selection"],
+  "properties": {
+    "artifact_type": {"const": "independent_review_package"},
+    "package_root": {"type": "string", "minLength": 1},
+    "review_skill_path": {"type": "string", "minLength": 1},
+    "review_request_path": {"type": "string", "minLength": 1},
+    "conclusions_withheld": {"const": true},
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "role", "size"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "role": {"enum": ["official_input", "problem_contract", "model_contract", "computation_source", "run_record", "executed_output", "review_instruction"]},
+          "size": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "reviewer_selection": {
+      "type": "object",
+      "required": ["status", "selected_by", "reviewer", "model", "task_ref"],
+      "properties": {
+        "status": {"enum": ["unreviewed", "user_confirmed"]},
+        "selected_by": {"type": ["string", "null"]},
+        "reviewer": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"]},
+        "task_ref": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -24,6 +24,10 @@ Warning 和 suggestion 会进入报告，但不改变通过状态，除非新的
 
 Independent review 从 full pass 开始。如果返回开放 P0，下一轮默认 targeted re-review。`accepted_with_concerns` 足以进入 paper，因为开放 P1 只说明仍有改进空间，并未证明结果为假。
 
+Targeted result 不必重复 full review 的 P1，但 validation→paper handoff 会沿结构化 lineage 取每个 finding 的最新状态：开放/已接受 P1 保留，resolved 不保留。Paper limitation 只接受受支持、可进入论文的 claim，不吸收 contradicted/unsupported claim。
+
+所有正式源码消费者采用同一链：`RESULTS_INDEX.json` → referenced successful `official_run: true` → current source snapshot。缺失、失败、non-official 或 stale 均为明确错误。
+
 同一上下文不能满足 independent review。Same-model fresh task 仍标记为 correlated；different model 或 human 也只表示 independence evidence 更强，不构成数学证明。
 
 ## 变化与重验范围

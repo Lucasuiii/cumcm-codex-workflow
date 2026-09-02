@@ -10,7 +10,7 @@ Treat handoff `representation_candidates` as prompts for judgment, not a prescri
 2. Choose the best representation for each claim from existing evidence.
 3. Design `paper_structure` as the semantic argument flow.
 4. Generate only the tables/figures justified by the plan and existing results.
-5. Initialize the generic scaffold, or adapt current official material when supplied.
+5. Adapt a declared official paper template when supplied; otherwise initialize the generic scaffold and keep compliance unverified until rule/instruction documents are checked.
 6. Write, compile, render every page, and review the PDF.
 
 `paper_structure` is the source of truth for the body. Each entry supplies a section title, purpose, covered subproblems, and supported claims. One section may serve several subproblems; one complex subproblem may span several mathematically meaningful sections. Background, restatement, assumptions, notation, shared mechanisms, model development, results, validation, evaluation, and conclusions are candidate modules—not mandatory headings. Cover every official subproblem, but do not manufacture sections to imitate a generic modeling paper.
@@ -62,7 +62,7 @@ Non-transferable traits:
 - its AI-tool citation practice and any 2025 competition-specific formatting;
 - any claim that another paper should look similar or reproduce analyses absent from current evidence.
 
-Use this priority whenever sources conflict: current official rules/templates > the generic scaffold > reference-paper style.
+Use this priority whenever sources conflict: a current official paper template and official rules > the generic scaffold > reference-paper style. Rule PDFs/DOCs are compliance inputs, not automatically adaptable templates.
 
 ## Reader-facing quality
 

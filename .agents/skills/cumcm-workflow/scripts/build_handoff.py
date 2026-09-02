@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from provenance import digest_records, sha256_file
+from canonical_evidence import resolve_official_computation
+from official_materials import classified_official_materials
+from provenance import digest_records, sha256_file, snapshot_matches
 
 
 WORKFLOW_VERSION = "0.5.0"
@@ -42,10 +44,13 @@ BASE_PATHS = {
         ("validation/CLAIM_LEDGER.json", "claims"),
     ],
     "paper-delivery": [
+        ("problem/SOURCE_MANIFEST.json", "source_manifest"),
+        ("results/RESULTS_INDEX.json", "results"),
         ("paper/PAPER_PLAN.json", "paper_plan"),
         ("paper/LATEX_TEMPLATE_MANIFEST.json", "latex_source"),
         ("paper/PAPER_QUALITY_REPORT.json", "paper_quality"),
         ("paper/PAPER_VISIBLE_TEXT_REPORT.json", "visible_text"),
+        ("delivery/COMPILE_RECEIPT.json", "compile_receipt"),
     ],
 }
 
@@ -58,10 +63,8 @@ def official_sources(root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def is_format_source(source: dict[str, Any]) -> bool:
-    tags = " ".join(str(value) for value in source.get("authoritative_for", [])).casefold()
-    name = str(source.get("path", "")).casefold()
-    return any(token in tags or token in name for token in ("format", "rule", "template", "格式", "规则", "模板"))
+def official_paper_materials(root: Path) -> list[dict[str, Any]]:
+    return classified_official_materials(official_sources(root))
 
 
 def utc_now() -> str:
@@ -150,10 +153,46 @@ def representation_candidates(claims: dict[str, Any], results: dict[str, Any], s
     return candidates
 
 
-def paper_limitations(facts: dict[str, Any], model: dict[str, Any], claims: dict[str, Any], review: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def review_lineage(root: Path, current: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Merge structured findings newest-first; the latest status wins per finding ID."""
+    merged: dict[str, dict[str, Any]] = {}
+    lineage_paths = ["validation/INDEPENDENT_REVIEW_RESULT.json"]
+    seen_paths: set[str] = set()
+    review = current
+    while True:
+        for item in review.get("findings", []):
+            if not isinstance(item, dict) or not item.get("finding_id"):
+                continue
+            merged.setdefault(str(item["finding_id"]), item)
+        previous = review.get("previous_review_path") if review.get("review_mode") == "targeted" else None
+        if not previous:
+            break
+        rel = str(previous)
+        if rel in seen_paths:
+            raise ValueError(f"review lineage contains a cycle: {rel}")
+        seen_paths.add(rel)
+        candidate = (root / rel).resolve()
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError as exc:
+            raise ValueError(f"review lineage path escapes project: {rel}") from exc
+        if not candidate.is_file():
+            raise ValueError(f"review lineage file is missing: {rel}")
+        review = read_object(root, rel)
+        lineage_paths.append(rel)
+    return list(merged.values()), lineage_paths
+
+
+def paper_limitations(
+    facts: dict[str, Any],
+    model: dict[str, Any],
+    claims: dict[str, Any],
+    review_findings: list[dict[str, Any]],
+    supported_states: set[str],
+) -> dict[str, list[dict[str, Any]]]:
     claim_items: list[dict[str, Any]] = []
     for claim in claims.get("claims", []):
-        if not isinstance(claim, dict):
+        if not isinstance(claim, dict) or claim.get("evidence_state") not in supported_states:
             continue
         for item in values(claim.get("limitations")):
             claim_items.append({"claim_id": claim.get("claim_id"), "value": item})
@@ -163,7 +202,7 @@ def paper_limitations(facts: dict[str, Any], model: dict[str, Any], claims: dict
             key: item.get(key)
             for key in ("finding_id", "status", "category", "location", "evidence", "recommendation")
         }
-        for item in review.get("findings", [])
+        for item in review_findings
         if isinstance(item, dict) and item.get("severity") == "P1" and item.get("status") in {"open", "accepted_concern"}
     ]
 
@@ -189,6 +228,7 @@ def paper_payload(root: Path) -> dict[str, Any]:
     results = read_object(root, "results/RESULTS_INDEX.json")
     claims = read_object(root, "validation/CLAIM_LEDGER.json")
     review = read_object(root, "validation/INDEPENDENT_REVIEW_RESULT.json")
+    lineage_findings, _ = review_lineage(root, review)
     supported_states = {"supported_not_reproduced", "reproduced", "partially_supported"}
     verified_results = [
         {key: item.get(key) for key in ("result_id", "name", "value", "unit", "scope", "evidence_state")}
@@ -200,7 +240,7 @@ def paper_payload(root: Path) -> dict[str, Any]:
         for item in claims.get("claims", [])
         if isinstance(item, dict) and item.get("evidence_state") in supported_states
     ]
-    official_format_files = [source.get("path") for source in official_sources(root) if is_format_source(source)]
+    materials = official_paper_materials(root)
     return {
         "problem_summary": [
             {"subproblem_id": item.get("subproblem_id"), "request": item.get("request"), "expected_output": item.get("expected_output")}
@@ -212,9 +252,10 @@ def paper_payload(root: Path) -> dict[str, Any]:
         ],
         "verified_results": verified_results,
         "claims": selected_claims,
-        "limitations": paper_limitations(facts, model, claims, review),
+        "limitations": paper_limitations(facts, model, claims, lineage_findings, supported_states),
         "representation_candidates": representation_candidates(claims, results, supported_states),
-        "official_format_files": official_format_files,
+        "official_format_files": [item.get("path") for item in materials],
+        "official_materials": materials,
     }
 
 
@@ -223,18 +264,59 @@ def build_payload(root: Path, transition: str, state: dict[str, Any]) -> dict[st
         return {"implementation": state.get("implementation"), "next_task": "select one backend, implement, execute, and preserve the official run"}
     if transition == "computation-validation":
         results = read_object(root, "results/RESULTS_INDEX.json")
-        referenced = {str(item.get("run_id")) for item in results.get("results", []) if isinstance(item, dict) and item.get("run_id")}
-        official = []
-        for manifest in sorted((root / "runs").glob("*/RUN_MANIFEST.json")):
-            run = read_object(root, manifest.relative_to(root).as_posix())
-            if run.get("run_id") in referenced and run.get("official_run") is True and run.get("status") == "completed" and run.get("exit_code") == 0:
-                official.append(str(run["run_id"]))
-        return {"official_run_ids": sorted(official), "next_task": "review the packaged computation without reading debug history"}
+        official = resolve_official_computation(root, results)
+        return {"official_run_ids": [item["run_id"] for item in official], "next_task": "review the packaged computation without reading debug history"}
     if transition == "validation-paper":
         return paper_payload(root)
     quality = read_object(root, "paper/PAPER_QUALITY_REPORT.json")
     latex = read_object(root, "paper/LATEX_TEMPLATE_MANIFEST.json")
-    return {"approved_pdf": quality.get("paper_artifact"), "latex_entrypoint": latex.get("main_path"), "required_source_files": latex.get("required_files", [])}
+    receipt = read_object(root, "delivery/COMPILE_RECEIPT.json")
+    results = read_object(root, "results/RESULTS_INDEX.json")
+    computation = resolve_official_computation(root, results)
+    source_snapshot = receipt.get("source_snapshot")
+    if not snapshot_matches(root, source_snapshot):
+        raise ValueError("paper-delivery requires a current compile-bound editable LaTeX source snapshot")
+    if not isinstance(source_snapshot, dict) or source_snapshot.get("entrypoint") != latex.get("main_path"):
+        raise ValueError("paper-delivery compile source snapshot does not match the LaTeX entry point")
+    if not set(str(path) for path in latex.get("required_files", [])).issubset(
+        set(str(path) for path in source_snapshot.get("files", []))
+    ):
+        raise ValueError("paper-delivery compile source snapshot does not cover every required LaTeX file")
+    attempts = {
+        str(item.get("attempt_id")): item
+        for item in receipt.get("attempts", [])
+        if isinstance(item, dict)
+    }
+    selected = attempts.get(str(receipt.get("selected_attempt_id")))
+    approved_pdf = quality.get("paper_artifact")
+    if (
+        not isinstance(selected, dict)
+        or selected.get("exit_code") != 0
+        or not isinstance(approved_pdf, dict)
+        or selected.get("pdf_path") != approved_pdf.get("path")
+        or selected.get("pdf_sha256") != approved_pdf.get("sha256")
+    ):
+        raise ValueError("paper-delivery reviewed PDF is not the successful compile receipt's selected PDF")
+    return {
+        "approved_pdf": approved_pdf,
+        "editable_latex": {
+            "manifest_path": "paper/LATEX_TEMPLATE_MANIFEST.json",
+            "entrypoint": latex.get("main_path"),
+            "required_source_files": latex.get("required_files", []),
+            "source_snapshot": source_snapshot,
+        },
+        "computation_evidence": [
+            {
+                "run_id": item["run_id"],
+                "run_manifest_path": item["manifest_path"],
+                "source_snapshot": item["source_snapshot"],
+                "source_files": item["source_files"],
+            }
+            for item in computation
+        ],
+        "official_materials": official_paper_materials(root),
+        "official_compliance": latex.get("official_compliance"),
+    }
 
 
 def build(root: Path, transition: str) -> Path:
@@ -252,30 +334,21 @@ def build(root: Path, transition: str) -> Path:
             add_artifact(root, records, str(source.get("path")), "official_input")
     if transition == "computation-validation":
         results = read_object(root, "results/RESULTS_INDEX.json")
-        referenced_run_ids = {
-            str(item.get("run_id")) for item in results.get("results", [])
-            if isinstance(item, dict) and item.get("run_id")
-        }
-        for manifest in sorted((root / "runs").glob("*/RUN_MANIFEST.json")):
-            rel_manifest = manifest.relative_to(root).as_posix()
-            run = read_object(root, rel_manifest)
-            if run.get("run_id") not in referenced_run_ids or run.get("official_run") is not True or run.get("status") != "completed" or run.get("exit_code") != 0:
-                continue
-            add_artifact(root, records, rel_manifest, "official_run")
-            implementation = run.get("implementation") if isinstance(run.get("implementation"), dict) else {}
-            snapshot = implementation.get("source_snapshot") if isinstance(implementation.get("source_snapshot"), dict) else {}
-            for rel in snapshot.get("files", []):
+        for evidence in resolve_official_computation(root, results):
+            add_artifact(root, records, evidence["manifest_path"], "official_run")
+            for rel in evidence["source_files"]:
                 add_artifact(root, records, str(rel), "computation_source")
-            for item in run.get("inputs", []):
-                if isinstance(item, dict) and item.get("evidence_role") == "formal_input":
-                    add_artifact(root, records, str(item.get("path")), "formal_input")
-            for item in run.get("outputs", []):
-                if isinstance(item, dict) and item.get("evidence_role") == "claim_bearing_output":
-                    add_artifact(root, records, str(item.get("path")), "claim_bearing_output")
+            for rel in evidence["formal_inputs"]:
+                add_artifact(root, records, rel, "formal_input")
+            for rel in evidence["claim_bearing_outputs"]:
+                add_artifact(root, records, rel, "claim_bearing_output")
     if transition == "validation-paper":
-        for source in official_sources(root):
-            if is_format_source(source):
-                add_artifact(root, records, str(source.get("path")), "official_format")
+        current_review = read_object(root, "validation/INDEPENDENT_REVIEW_RESULT.json")
+        _, lineage_paths = review_lineage(root, current_review)
+        for rel in lineage_paths[1:]:
+            add_artifact(root, records, rel, "review_lineage")
+        for material in official_paper_materials(root):
+            add_artifact(root, records, str(material.get("path")), str(material.get("role")))
     if transition == "paper-delivery":
         latex = read_object(root, "paper/LATEX_TEMPLATE_MANIFEST.json")
         for rel in latex.get("required_files", []):
@@ -283,6 +356,13 @@ def build(root: Path, transition: str) -> Path:
         quality = read_object(root, "paper/PAPER_QUALITY_REPORT.json")
         if isinstance(quality.get("paper_artifact"), dict):
             add_artifact(root, records, str(quality["paper_artifact"].get("path")), "approved_pdf")
+        results = read_object(root, "results/RESULTS_INDEX.json")
+        for evidence in resolve_official_computation(root, results):
+            add_artifact(root, records, evidence["manifest_path"], "official_run")
+            for rel in evidence["source_files"]:
+                add_artifact(root, records, rel, "computation_source")
+        for material in official_paper_materials(root):
+            add_artifact(root, records, str(material.get("path")), str(material.get("role")))
     upstream, downstream = TRANSITIONS[transition]
     handoff = {
         "schema_version": WORKFLOW_VERSION,

@@ -19,7 +19,7 @@ The optional common `review` envelope remains accepted for compatibility, but fo
 ## Evidence-critical bindings
 
 - Official sources, formal inputs, and claim-bearing outputs use file hashes.
-- Official computation binds results to a successful run and the selected source-tree snapshot.
+- Official computation uses one canonical resolution in handoffs and review packaging: `RESULTS_INDEX.json` → referenced successful official run → current selected source-tree snapshot. Broken links fail rather than being omitted.
 - Review packages bind packaged files and the live upstream sources.
 - Handoffs bind only canonical downstream inputs.
 - Paper compilation binds the exact final PDF and the exact editable source tree.

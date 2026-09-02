@@ -39,12 +39,12 @@ Orchestrator 负责识别当前阶段、选择下一职责、检查 handoff fres
 
 Accepted decision 的 artifact scope 是 stage snapshot 的来源。Snapshot 由脚本自动生成，不要求人工重复填写；`revision_requested` 会使对应 snapshot 失效。
 
-Handoff 复用少量阶段产物并计算 upstream digest，因此不再建立另一套人工维护的大型 schema。普通 handoff 只保存路径、角色、摘要和 digest，不复制完整历史。Independent review package 是例外：reviewer 可能在另一个 task 或 workspace 工作，所以复核包只复制正式结果对应的 canonical evidence，并单独绑定 package/upstream digest；失败/探索 run、stdout/stderr 和 debug history 不参与打包或 freshness。
+Handoff 复用少量阶段产物并计算 upstream digest，因此不再建立另一套人工维护的大型 schema。普通 handoff 只保存路径、角色、摘要和 digest，不复制完整历史。Independent review package 是例外：reviewer 可能在另一个 task 或 workspace 工作，所以复核包只复制正式结果对应的 canonical evidence，并单独绑定 package/upstream digest；失败/探索 run、stdout/stderr 和 debug history 不参与打包或 freshness。Targeted review 后，paper brief 只沿结构化 review lineage 合并最新 finding 状态，以保留有效 P1 而不复制旧 review 对话。
 
 `workflow_checks.py` 始终重新检查成本较低的 hard invariant。Trusted snapshot 只减少重复的人工/语义复核，不跳过官方来源、official run、result locator、review package、handoff 和最终 PDF 身份检查。
 
 ## 计算与论文绑定
 
-正式计算把一个选定的 MATLAB/Python 实现绑定到 source-tree snapshot、成功命令、formal inputs、claim-bearing outputs、日志、断言和结果索引。同一正式任务默认不建立双语言 parity 实现。
+正式计算把一个选定的 MATLAB/Python 实现绑定到 source-tree snapshot、成功命令、formal inputs、claim-bearing outputs、日志、断言和结果索引。同一正式任务默认不建立双语言 parity 实现。Computation handoff、独立复核包和 paper→delivery 通过同一 `RESULTS_INDEX → official run → source snapshot` resolver 解释正式源码。
 
-最终编译使用相同原则：compile receipt 把最终 PDF 绑定到实际参与编译的 editable LaTeX source-tree snapshot，以及已经批准的 paper QA 版本。
+最终编译使用相同原则：compile receipt 把最终 PDF 绑定到实际参与编译的 editable LaTeX source-tree snapshot，以及已经批准的 paper QA 版本；paper→delivery handoff 同时携带该绑定、正式计算源码指针和官方材料角色。

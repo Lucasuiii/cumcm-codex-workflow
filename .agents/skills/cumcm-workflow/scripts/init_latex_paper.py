@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from official_materials import classified_official_materials
+
 
 WORKFLOW_VERSION = "0.5.0"
 TEMPLATE_ID = "cumcm-contest-ctex"
@@ -65,21 +67,30 @@ def validate_keywords(keywords: str) -> str:
     return value
 
 
-def official_format_sources(project: Path) -> list[str]:
+def validate_title(title: str) -> str:
+    value = title.strip()
+    placeholders = {
+        "全国大学生数学建模竞赛论文",
+        "cumcm paper",
+        "paper title",
+        "论文标题",
+        "标题待定",
+    }
+    if not value or value.casefold() in {item.casefold() for item in placeholders}:
+        raise ValueError("provide --title from the actual problem; generic title placeholders may not enter reader-facing output")
+    return value
+
+
+def official_paper_template_sources(project: Path) -> list[str]:
     manifest_path = project / "problem" / "SOURCE_MANIFEST.json"
     if not manifest_path.is_file():
         return []
     manifest = read_object(manifest_path)
-    matches: list[str] = []
-    for source in manifest.get("sources", []):
-        if not isinstance(source, dict) or source.get("origin") not in {"official", "organizer_attachment"}:
-            continue
-        tags = " ".join(str(value) for value in source.get("authoritative_for", [])).casefold()
-        path = str(source.get("path", ""))
-        name = path.casefold()
-        if any(token in tags or token in name for token in ("format", "rule", "template", "格式", "规则", "模板")):
-            matches.append(path)
-    return matches
+    return [
+        str(item.get("path"))
+        for item in classified_official_materials(manifest.get("sources", []))
+        if item.get("role") == "paper_template"
+    ]
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -158,11 +169,11 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
     skill_root = Path(__file__).resolve().parents[1]
     template_root = skill_root / "assets" / "latex-template" / "generic-ctex"
     template_meta = read_object(template_root / "template.json")
-    format_sources = official_format_sources(project)
-    if format_sources:
+    template_sources = official_paper_template_sources(project)
+    if template_sources:
         raise ValueError(
-            "official format/rule material is present; adapt it before using the generic scaffold: "
-            + ", ".join(format_sources)
+            "an official paper template is declared; adopt or adapt it before using the generic scaffold: "
+            + ", ".join(template_sources)
         )
     paper_dir = project / "paper"
     protected_targets = [paper_dir / "main.tex", paper_dir / "metadata.tex", paper_dir / "macros.tex", paper_dir / "references.bib", paper_dir / "sections", paper_dir / "LATEX_TEMPLATE_MANIFEST.json"]
@@ -174,6 +185,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
     structure = [item for item in plan["paper_structure"] if isinstance(item, dict)]
     subproblem_records: list[dict[str, str]] = []
     section_inputs: list[str] = []
+    chosen_title = validate_title(title)
     chosen_keywords = validate_keywords(keywords)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     temp_parent = project / ".cumcm" / "tmp"
@@ -219,7 +231,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
             (template_root / "metadata.tex.tmpl").read_text(encoding="utf-8"),
             {
                 "PROJECT_ID": str(state["project_id"]),
-                "TITLE": latex_escape(title),
+                "TITLE": latex_escape(chosen_title),
                 "COMPETITION_YEAR": str(competition_year),
                 "KEYWORDS": latex_escape(chosen_keywords),
             },
@@ -262,7 +274,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.5 CUMCM project")
     parser.add_argument("--project", required=True, type=Path)
-    parser.add_argument("--title", default="全国大学生数学建模竞赛论文")
+    parser.add_argument("--title", required=True, help="reader-facing title derived from the actual problem")
     parser.add_argument("--competition-year", type=int, default=datetime.now().year)
     parser.add_argument("--keywords", required=True, help="semicolon-separated keywords from the actual problem, model, or method")
     args = parser.parse_args()

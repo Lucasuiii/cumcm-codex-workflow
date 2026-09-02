@@ -218,28 +218,77 @@ class LatexTemplateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exactly cover"):
                 initialize(root, "mismatch", 2026, "mismatch")
 
-    def test_official_format_material_is_never_overridden_by_generic_scaffold(self):
+    def test_rule_document_does_not_block_generic_scaffold(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_inputs(root)
-            official = root / "problem/official/官方论文格式模板.tex"
+            official = root / "problem/official/提交格式说明.pdf"
+            official.parent.mkdir(parents=True, exist_ok=True)
+            official.write_bytes(b"official rules")
+            manifest = envelope("source_manifest")
+            manifest["sources"] = [
+                {
+                    "source_id": "SRC-FORMAT",
+                    "path": "problem/official/提交格式说明.pdf",
+                    "origin": "official",
+                    "authoritative_for": ["format_rules", "submission_rules"],
+                }
+            ]
+            write_json(root, "problem/SOURCE_MANIFEST.json", manifest)
+            before = official.read_bytes()
+            output = initialize(root, "碳化硅外延层厚度测量", 2026, "薄膜干涉；色散模型")
+            generated = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(official.read_bytes(), before)
+            self.assertTrue((root / "paper/main.tex").is_file())
+            self.assertEqual(generated["official_compliance"], "unverified")
+
+    def test_declared_official_paper_template_blocks_generic_scaffold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root)
+            official = root / "problem/official/paper-template.tex"
             official.parent.mkdir(parents=True, exist_ok=True)
             official.write_text("% official template\n", encoding="utf-8")
             manifest = envelope("source_manifest")
             manifest["sources"] = [
                 {
-                    "source_id": "SRC-FORMAT",
-                    "path": "problem/official/官方论文格式模板.tex",
+                    "source_id": "SRC-TEMPLATE",
+                    "path": "problem/official/paper-template.tex",
                     "origin": "official",
-                    "authoritative_for": ["paper_format"],
+                    "authoritative_for": ["paper_template"],
                 }
             ]
             write_json(root, "problem/SOURCE_MANIFEST.json", manifest)
-            before = official.read_bytes()
-            with self.assertRaisesRegex(ValueError, "official format/rule material"):
-                initialize(root, "must adapt official", 2026, "实际关键词")
-            self.assertEqual(official.read_bytes(), before)
+            with self.assertRaisesRegex(ValueError, "official paper template"):
+                initialize(root, "碳化硅外延层厚度测量", 2026, "薄膜干涉；色散模型")
             self.assertFalse((root / "paper/main.tex").exists())
+
+    def test_template_filename_without_role_metadata_does_not_decide_behavior(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root)
+            official = root / "problem/official/论文模板说明.pdf"
+            official.parent.mkdir(parents=True, exist_ok=True)
+            official.write_bytes(b"ambiguous official document")
+            manifest = envelope("source_manifest")
+            manifest["sources"] = [
+                {
+                    "source_id": "SRC-AMBIGUOUS",
+                    "path": "problem/official/论文模板说明.pdf",
+                    "origin": "official",
+                    "authoritative_for": [],
+                }
+            ]
+            write_json(root, "problem/SOURCE_MANIFEST.json", manifest)
+            output = initialize(root, "碳化硅外延层厚度测量", 2026, "薄膜干涉；色散模型")
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["official_compliance"], "unverified")
+
+    def test_reader_facing_title_placeholder_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root)
+            with self.assertRaisesRegex(ValueError, "actual problem"):
+                initialize(root, "全国大学生数学建模竞赛论文", 2026, "薄膜干涉；色散模型")
 
     def test_final_placeholder_blocks(self):
         with tempfile.TemporaryDirectory() as temp:

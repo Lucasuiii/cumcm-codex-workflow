@@ -8,4 +8,6 @@ SHA-256 只用于字节身份确实会影响证据的对象：官方来源、for
 
 Independent review package 的 package/upstream digest 只覆盖正式结果引用的 canonical evidence 与复核说明；失败/探索 run、stdout/stderr、旧实验和 debug history 默认不进入包，也不扩大 freshness 范围。
 
+Computation→validation handoff、independent review package 与 paper→delivery handoff 共用 `canonical_evidence.py` 解析 `RESULTS_INDEX → official run → source snapshot`。这样不同接口不会一个忽略坏引用、另一个才报错。Paper→delivery 只提供 canonical pointers 和 digest，不复制完整 runs。
+
 如果引入公开上游软件，在合并前记录其仓库 URL、精确 revision、许可证、实际使用文件和本项目修改。不要把第三方设计、模板或代码描述为本仓库原创。

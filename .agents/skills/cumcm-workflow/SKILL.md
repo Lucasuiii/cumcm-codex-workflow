@@ -33,7 +33,7 @@ Switch modes with `scripts/set_mode.py`; entering finalizing reports the current
 | Paper | [06-paper-writing.md](references/06-paper-writing.md), [latex-template.md](references/latex-template.md) | `paper-delivery` |
 | Delivery | [07-compile-delivery.md](references/07-compile-delivery.md) | final package |
 
-Build handoffs with `scripts/build_handoff.py`. They contain canonical paths, compact downstream payloads, and an upstream digest. Do not copy full logs, failed runs, debug history, or old review conversations. A stale digest requires rebuilding the handoff.
+Build handoffs with `scripts/build_handoff.py`. They contain canonical paths, compact downstream payloads, and an upstream digest. Do not copy full logs, failed runs, debug history, or old review conversations. A stale digest requires rebuilding the handoff. The paper→delivery handoff names the reviewed PDF, its compile-bound editable LaTeX snapshot, the formal computation source chain, and current official paper materials so a fresh delivery task does not rediscover them.
 
 ## Evidence gates
 
@@ -45,7 +45,7 @@ Treat findings by consequence:
 
 Independent validation uses `accepted`, `accepted_with_concerns`, `revision_required`, or `inconclusive`. Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of those findings. A genuinely new P0 may still block; P1/P2 findings do not grow an endless blocking queue.
 
-The independent review package contains only canonical evidence for formally indexed results: official inputs, problem/model contracts, `RESULTS_INDEX.json`, cited successful official runs, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Exclude failed/exploratory runs, stdout/stderr, full logs, and debug history. Targeted packages must carry the compact self-contained `TARGETED_FINDINGS.json`; do not copy the full prior review into the package.
+The independent review package contains only canonical evidence for formally indexed results: official inputs, problem/model contracts, `RESULTS_INDEX.json`, cited successful official runs, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Exclude failed/exploratory runs, stdout/stderr, full logs, and debug history. Targeted packages must carry the compact self-contained `TARGETED_FINDINGS.json`; do not copy the full prior review into the package. When building the paper brief, merge the compact structured review lineage newest-first so unresolved/accepted P1 findings from the full review survive a targeted P0-only result; resolved findings do not.
 
 ## Computation backend
 
@@ -66,7 +66,7 @@ Every official run records the selected language, rationale, runtime, dependenci
 - Keep mathematical model and result contracts language-neutral.
 - Use SHA-256 only for evidence-critical identity: official sources, formal inputs, claim-bearing outputs, compact snapshots/handoffs, review packages, selected source trees, and the reviewed final PDF.
 - Keep internal IDs, evidence states, local paths, run coverage, and workflow language out of the visible paper.
-- Paper handoff limitations come from claim limitations, P1 concerns, and explicit applicability/assumption/known-limitation fields—not model scope. The paper task reads [06-paper-writing.md](references/06-paper-writing.md), makes `paper_structure` the semantic source of truth, and selects prose, equation, table, or figure by claim function. Reference papers are style priors only; current official rules override the generic scaffold. No minimum figure/page count is a hard gate.
+- Paper handoff limitations come only from supported paper-eligible claim limitations, current P1 concerns, and explicit applicability/assumption/known-limitation fields—not contradicted claims or model scope. The paper task reads [06-paper-writing.md](references/06-paper-writing.md), makes `paper_structure` the semantic source of truth, and selects prose, equation, table, or figure by claim function. Reference papers are style priors only. A declared official paper template must be adopted/adapted before the generic scaffold; rule or submission-instruction documents do not block generic initialization and keep compliance unverified. No minimum figure/page count is a hard gate.
 - Bind the final PDF to its reviewed bytes and to the exact editable LaTeX source snapshot used for compilation.
 - Missing current official rules or templates blocks delivery; it does not authorize autonomous search or submission.
 - Final delivery contains the reviewed PDF, editable LaTeX, and computation source as separate roles.

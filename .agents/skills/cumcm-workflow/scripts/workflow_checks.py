@@ -1421,9 +1421,24 @@ def check_handoff(data: Any, root: Path, path: str, expected_transition: str) ->
         findings.append(finding("HANDOFF-E004", "error", "execution", upstream, path, "handoff upstream digest is stale"))
     if expected_transition == "validation-paper":
         payload = data.get("payload")
-        required = {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files"}
+        required = {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files", "official_materials"}
         if not isinstance(payload, dict) or not required.issubset(payload):
             findings.append(finding("HANDOFF-E005", "error", "structural", "validation", path, "paper handoff lacks the compact canonical paper brief"))
+    if expected_transition == "paper-delivery":
+        payload = data.get("payload")
+        required = {"approved_pdf", "editable_latex", "computation_evidence", "official_materials", "official_compliance"}
+        roles = {
+            str(item.get("role"))
+            for item in as_list(data.get("canonical_artifacts"))
+            if isinstance(item, dict)
+        }
+        canonical_roles = {"results", "official_run", "computation_source", "compile_receipt", "editable_source", "approved_pdf"}
+        if not isinstance(payload, dict) or not required.issubset(payload):
+            findings.append(finding("HANDOFF-E006", "error", "structural", "paper", path, "delivery handoff lacks final PDF, editable-source binding, computation evidence, or official-material status"))
+        elif not as_list(payload.get("computation_evidence")):
+            findings.append(finding("HANDOFF-E007", "error", "execution", "paper", path, "delivery handoff contains no canonical official computation source chain"))
+        if not canonical_roles.issubset(roles):
+            findings.append(finding("HANDOFF-E008", "error", "structural", "paper", path, "delivery handoff does not bind every required canonical delivery role"))
     return findings
 
 

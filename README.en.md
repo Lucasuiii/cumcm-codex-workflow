@@ -77,9 +77,13 @@ The paper handoff contains:
 
 - problem and model summaries;
 - verified results and selected claims;
-- claim limitations, unresolved/accepted P1 concerns, and model applicability, assumptions, and known limitations (model `scope` is not treated as a limitation);
+- limitations only from supported paper-eligible claims, unresolved/accepted P1 concerns from the current review lineage, and model applicability, assumptions, and known limitations (contradicted/unsupported claims and model `scope` do not contaminate the brief);
 - proactive `representation_candidates` for trends, multi-group comparisons, distributions, sensitivity, model performance, and spatial/network/clustering structure; the fresh paper task chooses prose, equation, table, or figure;
-- identified official-format files.
+- official paper templates, format/submission rules, and unclassified materials distinguished by metadata.
+
+Targeted re-review remains focused on the original P0 findings. When the paper handoff is built, structured `previous_review_path` lineage is merged newest-first, so still-open/accepted P1 concerns from the full review survive and resolved findings do not.
+
+The `paper-delivery` handoff additionally names the reviewed final PDF, the compile-bound editable LaTeX source snapshot, computation source selected through `RESULTS_INDEX → successful official run → source snapshot`, and current official materials/compliance status. A fresh Delivery task does not rescan run or debug history.
 
 A new task reads the handoff first. If a canonical upstream artifact changes, the handoff becomes stale and must be rebuilt.
 
@@ -119,7 +123,7 @@ MATLAB executable detection checks, in order: explicit project `implementation.m
 
 Once selected, only that backend is officially implemented and run. Python/MATLAB parity is created only when explicitly requested.
 
-Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs/outputs, assertions, and `official_run: true`. Formal results may reference only a successful official run.
+Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs/outputs, assertions, and `official_run: true`. Formal results may reference only a successful official run. The computation handoff, independent package, and Delivery source selection share one canonical resolver; a missing, failed, non-official, or stale-source link fails explicitly everywhere.
 
 ## 7. Paper and LaTeX
 
@@ -137,7 +141,7 @@ verified results
 
 `PAPER_PLAN.paper_structure` is the source of truth for body-section titles, purposes, covered subproblems, supported claims, and order. The LaTeX initializer only converts it into section files and `main.tex` input order: one section may serve several subproblems, and one complex subproblem may span several mathematically meaningful sections. It no longer generates a fixed three-subsection tree per question. The abstract follows problem -> core method -> key result -> meaning/validation, and keywords come from the actual object, model, or method.
 
-Every table or figure should solve a specific reading or evidence problem, such as fit, residual structure, comparison, sensitivity, convergence, or robustness, and must use existing computation/validation evidence. Paper writing does not invent experiments for polish, and there is no minimum figure or page count. Current official rules/templates override the generic scaffold; high-quality reference papers provide transferable principles only.
+Every table or figure should solve a specific reading or evidence problem, such as fit, residual structure, comparison, sensitivity, convergence, or robustness, and must use existing computation/validation evidence. Paper writing does not invent experiments for polish, and there is no minimum figure or page count. A metadata-declared official paper template is adopted or adapted first; a rule/instruction PDF, DOC, or DOCX does not block the generic scaffold merely by existing, while compliance remains `unverified`. High-quality reference papers provide transferable principles only. The initializer requires an actual problem title and actual keywords rather than reader-facing generic defaults.
 
 Final QA checks captions, tables, equations, page density, figure placement, fonts/glyphs, overflow, clipping, whitespace, and cross-page continuity. Internal IDs, evidence states, local paths, and workflow language remain blocking visible-text leaks; excessive precision and number-dense sentences are warnings.
 

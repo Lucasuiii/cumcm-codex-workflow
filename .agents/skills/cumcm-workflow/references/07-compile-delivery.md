@@ -1,6 +1,6 @@
 # Delivery responsibility
 
-Delivery is a `finalizing` responsibility. It uses only current user-supplied official rules/templates and the fresh `paper-delivery` handoff.
+Delivery is a `finalizing` responsibility. It uses only current user-supplied official rules/templates and the fresh `paper-delivery` handoff. That handoff must identify the reviewed PDF, the compile-bound editable LaTeX snapshot/entry point, every official computation source selected through `RESULTS_INDEX → successful official run → source snapshot`, and the official paper materials still requiring compliance review.
 
 ## Hard checks
 

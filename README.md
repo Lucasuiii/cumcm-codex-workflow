@@ -77,9 +77,13 @@ paper handoff 包含：
 
 - problem/model summary；
 - verified results 与 selected claims；
-- claim limitations、未解决/已接受的 P1 concern，以及模型适用条件、假设和已知局限（model `scope` 不会被误当成 limitation）；
+- 仅来自受支持、可进入论文的 claims 的 limitations，当前 review lineage 中未解决/已接受的 P1 concern，以及模型适用条件、假设和已知局限（contradicted/unsupported claim 与 model `scope` 不会污染 limitation）；
 - 主动识别趋势、多组比较、分布、敏感性、模型性能、空间/网络/聚类结构的 `representation_candidates`，由 fresh paper task 决定用 prose、equation、table 或 figure；
-- 已识别的官方格式文件。
+- 按 metadata 区分的官方论文模板、格式/提交规则和待确认材料。
+
+targeted re-review 仍只聚焦原 P0；生成 paper handoff 时会沿结构化 `previous_review_path` 按“最新状态优先”合并 finding，因此 full review 中仍开放/已接受的 P1 不会丢失，resolved finding 不再传递。
+
+`paper-delivery` handoff 进一步明确最终审核 PDF、compile receipt 绑定的 editable LaTeX source snapshot、`RESULTS_INDEX → successful official run → source snapshot` 选出的计算源码，以及当前官方材料/合规状态。Fresh Delivery task 不需要重新扫描 runs 或 debug history。
 
 新 task 先读 handoff。任一 canonical 上游产物变化后，handoff 会 stale，必须刷新。
 
@@ -119,7 +123,7 @@ MATLAB executable 的检测顺序是：项目 `implementation.matlab_executable`
 
 一旦选定，只正式实现并运行这一种后端。只有用户明确要求时才建立 Python/MATLAB parity。
 
-每个 official run 记录 selected language、rationale、runtime、dependencies/toolboxes、entry point、source-tree snapshot、command、logs、输入输出、assertions 和 `official_run: true`。正式结果只能引用成功 official run。
+每个 official run 记录 selected language、rationale、runtime、dependencies/toolboxes、entry point、source-tree snapshot、command、logs、输入输出、assertions 和 `official_run: true`。正式结果只能引用成功 official run。Computation handoff、独立复核包和 Delivery 源码选择共用同一 canonical resolver；引用缺失、失败、non-official 或 source snapshot stale 时都会明确失败。
 
 ## 7. Paper 与 LaTeX
 
@@ -137,7 +141,7 @@ verified results
 
 `PAPER_PLAN.paper_structure` 是正文 section 标题、目的、覆盖小问、支撑 claims 及顺序的 source of truth。LaTeX initializer 只把它转换为 section 文件和 `main.tex` input 顺序：一个 section 可服务多个小问，一个复杂小问也可拆为多个有数学意义的 section；不再按每问生成固定三小节。摘要按“问题—核心方法—关键结果—含义/验证”组织，关键词来自实际对象、模型或方法。
 
-每张图表都应解决一个明确的阅读或论证问题，例如拟合、残差、比较、敏感性、收敛性或鲁棒性；只有已有 computation/validation evidence 才能写入。Paper 阶段不会为成品感虚构新实验，也不设置最少图数或页数。当前官方规则/模板优先于 generic scaffold，参考优秀论文只提供可迁移的质量原则。
+每张图表都应解决一个明确的阅读或论证问题，例如拟合、残差、比较、敏感性、收敛性或鲁棒性；只有已有 computation/validation evidence 才能写入。Paper 阶段不会为成品感虚构新实验，也不设置最少图数或页数。Metadata 明确声明的官方论文模板优先采用或适配；规则/提交说明 PDF、DOC、DOCX 不会仅因存在而阻断 generic scaffold，但合规状态保持 `unverified`。参考优秀论文只提供可迁移的质量原则。Initializer 要求真实题目标题和实际关键词，不提供可误入成品的通用 reader-facing 默认值。
 
 最终 QA 检查 caption、table、equation、页面密度、figure placement、字体/缺字、overflow、裁切、留白和跨页连续性。内部 ID、evidence state、本机路径和 workflow 术语仍是可见文本 hard error；精度过高和一句话数字过密是 warning。
 

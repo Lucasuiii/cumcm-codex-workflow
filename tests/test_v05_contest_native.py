@@ -268,7 +268,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             self.assertFalse(any(item["path"].startswith("runs/") for item in handoff["canonical_artifacts"]))
             self.assertEqual(
                 set(handoff["payload"]),
-                {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files"},
+                {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files", "official_materials"},
             )
             self.assertIn("debug transcripts", handoff["excluded_history"])
 
@@ -306,6 +306,130 @@ class ContestNativeV05Tests(unittest.TestCase):
             self.assertIn("REV-P1-001", limitation_text)
             kinds = {item["kind"] for item in payload["representation_candidates"]}
             self.assertTrue({"trend", "multi_group_comparison"}.issubset(kinds))
+
+    def test_targeted_review_preserves_open_p1_lineage_and_filters_unsupported_claim_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            current_path = root / "validation/INDEPENDENT_REVIEW_RESULT.json"
+            full = json.loads(current_path.read_text(encoding="utf-8"))
+            full.update({
+                "review_id": "REVIEW-FULL-P1",
+                "review_mode": "full",
+                "previous_review_path": None,
+                "target_finding_ids": [],
+                "verdict": "revision_required",
+                "findings": [
+                    review_finding("REV-P0-001", "P0", "open"),
+                    review_finding("REV-P1-KEEP", "P1", "accepted_concern"),
+                    review_finding("REV-P1-DROP", "P1", "open"),
+                ],
+            })
+            history = root / "validation/review-history/REVIEW-FULL-P1.json"
+            write_json(root, history.relative_to(root).as_posix(), full)
+
+            targeted = json.loads(current_path.read_text(encoding="utf-8"))
+            targeted.update({
+                "review_id": "REVIEW-TARGETED-P1",
+                "review_mode": "targeted",
+                "previous_review_path": history.relative_to(root).as_posix(),
+                "target_finding_ids": ["REV-P0-001"],
+                "verdict": "accepted",
+                "findings": [
+                    review_finding("REV-P0-001", "P0", "resolved"),
+                    review_finding("REV-P1-DROP", "P1", "resolved"),
+                ],
+            })
+            write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", targeted)
+
+            claims_path = root / "validation/CLAIM_LEDGER.json"
+            claims = json.loads(claims_path.read_text(encoding="utf-8"))
+            contradicted = dict(claims["claims"][0])
+            contradicted.update({
+                "claim_id": "CLM-CONTRADICTED",
+                "text": "Unsupported alternative claim.",
+                "evidence_state": "contradicted",
+                "limitations": "This must not enter the paper brief.",
+            })
+            claims["claims"].append(contradicted)
+            write_json(root, "validation/CLAIM_LEDGER.json", claims)
+
+            handoff_path = build_handoff(root, "validation-paper")
+            handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+            limitation_text = json.dumps(handoff["payload"]["limitations"], ensure_ascii=False)
+            self.assertIn("REV-P1-KEEP", limitation_text)
+            self.assertNotIn("REV-P1-DROP", limitation_text)
+            self.assertNotIn("This must not enter the paper brief.", limitation_text)
+            self.assertIn(history.relative_to(root).as_posix(), {item["path"] for item in handoff["canonical_artifacts"]})
+
+    def test_paper_delivery_handoff_is_self_contained_for_fresh_delivery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            handoff = json.loads((root / "handoffs/paper-delivery/HANDOFF.json").read_text(encoding="utf-8"))
+            payload = handoff["payload"]
+            self.assertEqual(payload["approved_pdf"]["path"], "paper/paper.pdf")
+            self.assertEqual(payload["editable_latex"]["entrypoint"], "paper/main.tex")
+            self.assertEqual(payload["editable_latex"]["source_snapshot"]["entrypoint"], "paper/main.tex")
+            self.assertEqual(payload["computation_evidence"][0]["run_id"], "RUN-Q1-001")
+            self.assertIn("code/solve.py", payload["computation_evidence"][0]["source_files"])
+            roles = {item["role"] for item in handoff["canonical_artifacts"]}
+            self.assertTrue({"results", "official_run", "computation_source", "compile_receipt", "editable_source", "approved_pdf"}.issubset(roles))
+
+    def test_paper_delivery_handoff_rejects_stale_editable_source_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            (root / "paper/main.tex").write_text("% changed after compile\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "compile-bound editable LaTeX"):
+                build_handoff(root, "paper-delivery")
+
+    def test_paper_delivery_handoff_carries_classified_official_rules(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            rules_path = root / "problem/official/submission-rules.pdf"
+            rules_path.write_bytes(b"official submission rules")
+            manifest_path = root / "problem/SOURCE_MANIFEST.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["sources"].append(
+                {
+                    "source_id": "SRC-SUBMISSION-RULES",
+                    "path": rules_path.relative_to(root).as_posix(),
+                    "origin": "official",
+                    "authoritative_for": ["submission_rules"],
+                }
+            )
+            write_json(root, "problem/SOURCE_MANIFEST.json", manifest)
+            handoff_path = build_handoff(root, "paper-delivery")
+            handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+            self.assertIn(
+                {
+                    "source_id": "SRC-SUBMISSION-RULES",
+                    "path": "problem/official/submission-rules.pdf",
+                    "role": "format_or_submission_rule",
+                    "authoritative_for": ["submission_rules"],
+                },
+                handoff["payload"]["official_materials"],
+            )
+            self.assertIn("format_or_submission_rule", {item["role"] for item in handoff["canonical_artifacts"]})
+
+    def test_all_canonical_consumers_reject_a_nonofficial_referenced_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            run_path = root / "runs/RUN-Q1-001/RUN_MANIFEST.json"
+            run = json.loads(run_path.read_text(encoding="utf-8"))
+            run["official_run"] = False
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", run)
+            shutil.rmtree(root / "validation/independent-review-package")
+            (root / "model/VALIDATION_PLAN.md").write_text("# Validation plan\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not a successful official run"):
+                build_handoff(root, "computation-validation")
+            with self.assertRaisesRegex(ValueError, "not a successful official run"):
+                build_review_package(root)
+            with self.assertRaisesRegex(ValueError, "not a successful official run"):
+                build_handoff(root, "paper-delivery")
 
     def test_review_package_contains_only_canonical_official_evidence(self):
         with tempfile.TemporaryDirectory() as temp:

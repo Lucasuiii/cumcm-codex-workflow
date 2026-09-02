@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from canonical_evidence import resolve_official_computation
 from workflow_checks import WORKFLOW_VERSION, read_json, safe_project_path
 from provenance import digest_records, sha256_file
 
@@ -55,31 +56,6 @@ def targeted_findings_from(prior: dict[str, Any], target_ids: list[str]) -> list
         raise ValueError(f"targeted findings are not open P0 entries in the previous review: {', '.join(missing)}")
     fields = ("finding_id", "category", "location", "evidence", "recommendation")
     return [{field: str(available[finding_id].get(field, "")) for field in fields} for finding_id in target_ids]
-
-
-def selected_official_runs(project: Path, results: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    referenced = {
-        str(item.get("run_id"))
-        for item in results.get("results", [])
-        if isinstance(item, dict) and item.get("run_id")
-    }
-    manifests: dict[str, tuple[str, dict[str, Any]]] = {}
-    for manifest_path in sorted((project / "runs").glob("*/RUN_MANIFEST.json")):
-        rel = manifest_path.relative_to(project).as_posix()
-        run = require_object(manifest_path)
-        run_id = str(run.get("run_id", ""))
-        if run_id:
-            manifests[run_id] = (rel, run)
-    selected: list[tuple[str, dict[str, Any]]] = []
-    for run_id in sorted(referenced):
-        candidate = manifests.get(run_id)
-        if candidate is None:
-            raise ValueError(f"formal result references a missing run: {run_id}")
-        rel, run = candidate
-        if run.get("official_run") is not True or run.get("status") != "completed" or run.get("exit_code") != 0:
-            raise ValueError(f"formal result references a run that is not a successful official run: {run_id}")
-        selected.append((rel, run))
-    return selected
 
 
 def build(project: Path, *, review_mode: str = "auto", previous_review_path: str | None = None, target_finding_ids: list[str] | None = None, refresh: bool = False) -> Path:
@@ -174,18 +150,14 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             if isinstance(source, dict) and source.get("origin") in {"official", "organizer_attachment"}:
                 copy_material(project, staging, str(source.get("path")), "official_input", records, seen)
 
-        for rel_manifest, run in selected_official_runs(project, results):
-            copy_material(project, staging, rel_manifest, "run_record", records, seen)
-            implementation = run.get("implementation") if isinstance(run.get("implementation"), dict) else {}
-            snapshot = implementation.get("source_snapshot") if isinstance(implementation.get("source_snapshot"), dict) else {}
-            for rel in snapshot.get("files", []):
-                copy_material(project, staging, str(rel), "computation_source", records, seen)
-            for entry in run.get("inputs", []):
-                if isinstance(entry, dict) and entry.get("evidence_role") == "formal_input":
-                    copy_material(project, staging, str(entry.get("path")), "run_record", records, seen)
-            for entry in run.get("outputs", []):
-                if isinstance(entry, dict) and entry.get("evidence_role") == "claim_bearing_output":
-                    copy_material(project, staging, str(entry.get("path")), "executed_output", records, seen)
+        for evidence in resolve_official_computation(project, results):
+            copy_material(project, staging, evidence["manifest_path"], "run_record", records, seen)
+            for rel in evidence["source_files"]:
+                copy_material(project, staging, rel, "computation_source", records, seen)
+            for rel in evidence["formal_inputs"]:
+                copy_material(project, staging, rel, "run_record", records, seen)
+            for rel in evidence["claim_bearing_outputs"]:
+                copy_material(project, staging, rel, "executed_output", records, seen)
 
         if review_mode == "targeted":
             targeted_payload = {

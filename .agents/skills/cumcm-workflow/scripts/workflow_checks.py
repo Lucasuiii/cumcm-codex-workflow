@@ -1249,16 +1249,17 @@ def check_latex_template(
     section_files = set(str(value) for value in as_list(data.get("section_files")))
     mappings = as_list(data.get("subproblem_sections"))
     mapped_ids: set[str] = set()
-    mapped_paths: set[str] = set()
+    mapped_pairs: set[tuple[str, str]] = set()
     for mapping in mappings:
         if not isinstance(mapping, dict):
             continue
         subproblem_id = item_id(mapping, "subproblem_id")
         rel = mapping.get("path")
-        if subproblem_id in mapped_ids:
-            findings.append(finding("LATEX-E003", "error", "structural", "paper", path, f"duplicate LaTeX subproblem mapping: {subproblem_id}", related_ids=[subproblem_id]))
+        pair = (subproblem_id, str(rel))
+        if pair in mapped_pairs:
+            findings.append(finding("LATEX-E003", "error", "structural", "paper", path, f"duplicate LaTeX subproblem/section mapping: {subproblem_id} -> {rel}", related_ids=[subproblem_id]))
         mapped_ids.add(subproblem_id)
-        mapped_paths.add(str(rel))
+        mapped_pairs.add(pair)
         if rel not in section_files:
             findings.append(finding("LATEX-E004", "error", "structural", "paper", path, f"mapped subproblem section is absent from section_files: {rel}", related_ids=[subproblem_id]))
         rel_path = safe_project_path(root, rel)

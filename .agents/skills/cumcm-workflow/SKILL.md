@@ -66,7 +66,7 @@ Every official run records the selected language, rationale, runtime, dependenci
 - Keep mathematical model and result contracts language-neutral.
 - Use SHA-256 only for evidence-critical identity: official sources, formal inputs, claim-bearing outputs, compact snapshots/handoffs, review packages, selected source trees, and the reviewed final PDF.
 - Keep internal IDs, evidence states, local paths, run coverage, and workflow language out of the visible paper.
-- Paper handoff limitations come from claim limitations, P1 concerns, and explicit applicability/assumption/known-limitation fields—not model scope. It proactively supplies representation candidates; the paper task selects prose, equation, table, or figure. No minimum figure/page count is a hard gate.
+- Paper handoff limitations come from claim limitations, P1 concerns, and explicit applicability/assumption/known-limitation fields—not model scope. The paper task reads [06-paper-writing.md](references/06-paper-writing.md), makes `paper_structure` the semantic source of truth, and selects prose, equation, table, or figure by claim function. Reference papers are style priors only; current official rules override the generic scaffold. No minimum figure/page count is a hard gate.
 - Bind the final PDF to its reviewed bytes and to the exact editable LaTeX source snapshot used for compilation.
 - Missing current official rules or templates blocks delivery; it does not authorize autonomous search or submission.
 - Final delivery contains the reviewed PDF, editable LaTeX, and computation source as separate roles.

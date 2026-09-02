@@ -135,7 +135,9 @@ verified results
   -> rendered PDF QA
 ```
 
-不设置最少图数或页数。图表偏少只会提醒重新考虑表达方式，不直接失败。v0.5 模板使用宽松的叙事单元并允许重组，避免每问机械重复“分析—假设—建模—求解”。
+`PAPER_PLAN.paper_structure` 是正文 section 标题、目的、覆盖小问、支撑 claims 及顺序的 source of truth。LaTeX initializer 只把它转换为 section 文件和 `main.tex` input 顺序：一个 section 可服务多个小问，一个复杂小问也可拆为多个有数学意义的 section；不再按每问生成固定三小节。摘要按“问题—核心方法—关键结果—含义/验证”组织，关键词来自实际对象、模型或方法。
+
+每张图表都应解决一个明确的阅读或论证问题，例如拟合、残差、比较、敏感性、收敛性或鲁棒性；只有已有 computation/validation evidence 才能写入。Paper 阶段不会为成品感虚构新实验，也不设置最少图数或页数。当前官方规则/模板优先于 generic scaffold，参考优秀论文只提供可迁移的质量原则。
 
 最终 QA 检查 caption、table、equation、页面密度、figure placement、字体/缺字、overflow、裁切、留白和跨页连续性。内部 ID、evidence state、本机路径和 workflow 术语仍是可见文本 hard error；精度过高和一句话数字过密是 warning。
 

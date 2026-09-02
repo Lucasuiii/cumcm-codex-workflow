@@ -4,16 +4,65 @@ Start in a fresh task when practical. Read `handoffs/validation-paper/HANDOFF.js
 
 Treat handoff `representation_candidates` as prompts for judgment, not a prescribed chart list. They flag evidence shapes that may benefit from visualization even when no figure exists yet. Select prose, equation, table, or figure according to the claim. Handoff limitations contain claim limits, P1 concerns, and model applicability/assumption/known-limit information; do not reinterpret model scope itself as a limitation.
 
-## Claim-led sequence
+## Plan the argument before LaTeX
 
-1. select the validated claims that answer the official questions;
-2. choose the best representation for each claim: prose, equation, table, or figure;
-3. generate the required tables/figures from indexed results;
-4. design a paper structure that covers every subproblem without forcing a stock section template;
-5. initialize or adapt LaTeX;
-6. compile, render, and review the PDF.
+1. Select the validated claims that answer the official questions.
+2. Choose the best representation for each claim from existing evidence.
+3. Design `paper_structure` as the semantic argument flow.
+4. Generate only the tables/figures justified by the plan and existing results.
+5. Initialize the generic scaffold, or adapt current official material when supplied.
+6. Write, compile, render every page, and review the PDF.
 
-`PAPER_PLAN.json` therefore requires only `claim_selection`, `representation_plan`, and `paper_structure`. Legacy nine-layer plans, reference-paper counts, page budgets, and figure counts may remain as optional notes but are not hard gates. A plan with no table/figure creates a warning to reconsider communication, not a failure.
+`paper_structure` is the source of truth for the body. Each entry supplies a section title, purpose, covered subproblems, and supported claims. One section may serve several subproblems; one complex subproblem may span several mathematically meaningful sections. Background, restatement, assumptions, notation, shared mechanisms, model development, results, validation, evaluation, and conclusions are candidate modules—not mandatory headings. Cover every official subproblem, but do not manufacture sections to imitate a generic modeling paper.
+
+`PAPER_PLAN.json` still needs only `claim_selection`, `representation_plan`, and `paper_structure`. Legacy argument layers, reference-paper counts, page budgets, and figure counts may remain optional notes but are not hard gates. A plan with no table/figure creates a warning to reconsider communication, not a failure.
+
+## Abstract and keywords
+
+Write the abstract after the body stabilizes. Use the order problem -> core method -> key result -> meaning/validation. For a quantitative task, include a few decision-bearing numerical anchors with units, comparison, uncertainty, or fit information when supported. Avoid empty sequences such as “a model is built for Question 1; Question 2 is solved; results show effectiveness.”
+
+Keywords must come from the actual object, data, model, or method. Do not use workflow filler such as “mathematical modeling,” “reproducible computation,” or “evidence chain.”
+
+## Claim-serving representations
+
+Every representation answers one reading or evidence question:
+
+- observed-versus-fitted plots show where the model follows or misses the data;
+- residual/error plots expose structure hidden by a global fit score;
+- comparison plots support method, scenario, or policy choice;
+- sensitivity/convergence plots support parameter or algorithm stability;
+- robustness distributions support noise or perturbation claims;
+- mechanism/algorithm diagrams clarify a genuinely complex process;
+- compact tables carry values that readers must compare or retrieve precisely.
+
+These are options, not a checklist. Do not require every kind, impose a minimum count, or invent residual, Monte Carlo, sensitivity, convergence, or robustness analyses that computation/validation did not execute. The initializer never decides what to plot.
+
+## Result -> validation -> boundary
+
+After a result, explain what makes it credible, where it weakens, and what changes the conclusion. Prefer already available residual/error analysis, feasibility or constraint checks, sensitivity, convergence, stability/robustness, baseline/model comparison, or out-of-sample evidence. If an important check is missing, state a concern or limitation; the paper stage must not create a new numerical experiment merely to complete the narrative.
+
+When model evaluation is useful, distinguish strengths, limitations, and possible improvements. Tie each point to the actual mechanism, assumption, data region, parameter identifiability issue, sensitive perturbation, or missing data. Prefer claim limitations and accepted/open P1 concerns over generic claims that a model is simple, accurate, general, or practically meaningful.
+
+## Quality-reference boundary
+
+The user-supplied 2025 B first-prize paper, *基于联合物理色散模型与先进信号处理方法测定碳化硅外延层厚度*, is a quality reference, not a template.
+
+Transferable lessons:
+
+- a high-information abstract names the physical/modeling route and reports numerical anchors;
+- derivation, algorithm, computed result, interpretation, and reliability analysis form a continuous argument;
+- fitted curves, residuals, method comparisons, sensitivity/convergence views, and robustness distributions have distinct claim functions;
+- limitations identify concrete systematic residuals, material assumptions, parameter coupling, and dependence on external constants;
+- long supporting code and file lists remain in the appendix instead of interrupting the main narrative.
+
+Non-transferable traits:
+
+- its section count/order, 38-page length, and number of figures/tables;
+- its optics models, algorithms, parameter values, and physics-specific organization;
+- its AI-tool citation practice and any 2025 competition-specific formatting;
+- any claim that another paper should look similar or reproduce analyses absent from current evidence.
+
+Use this priority whenever sources conflict: current official rules/templates > the generic scaffold > reference-paper style.
 
 ## Reader-facing quality
 
@@ -24,6 +73,8 @@ Treat handoff `representation_candidates` as prompts for judgment, not a prescri
 - Keep internal IDs, evidence states, local paths, workflow terms, and run coverage in sidecars only.
 - Do not create new numerical results while writing.
 - Do not impose a minimum page or chart count.
+- Keep figures near the argument they support; use booktabs-style tables, concise captions, and subfigures only when joint comparison improves reading.
+- Use `tabularx` or `longtable` for genuinely wide/long material before shrinking text. Move supporting bulk to the appendix when rules allow.
 
 `PAPER_QUALITY_REPORT.json` binds content, rendered layout, and final QA to the exact PDF. Open P0 issues block final status. P1 concerns and P2 suggestions remain visible but do not block. Failed layout checks that make equations, tables, figures, glyphs, or pages unreadable remain hard submission-reliability failures.
 

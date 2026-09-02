@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from init_latex_paper import initialize  # noqa: E402
 from test_v03_paper_quality import build_valid_v04_project  # noqa: E402
 from test_workflow_core import envelope, write_json  # noqa: E402
-from workflow_checks import check_project  # noqa: E402
+from workflow_checks import check_latex_template, check_project  # noqa: E402
 
 
 def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_ids: tuple[str, ...] | None = None) -> None:
@@ -113,8 +113,95 @@ class LatexTemplateTests(unittest.TestCase):
             for rel in manifest["required_files"]:
                 self.assertTrue((root / rel).is_file(), rel)
             main = (root / manifest["main_path"]).read_text(encoding="utf-8")
-            self.assertIn(r"\input{sections/10_question_q1}", main)
-            self.assertIn(r"\input{sections/20_question_q2}", main)
+            self.assertIn(r"\input{sections/10_sec_q1}", main)
+            self.assertIn(r"\input{sections/20_sec_q2}", main)
+
+    def test_paper_structure_drives_order_and_supports_shared_or_split_sections(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root, problem_ids=("Q1", "Q2", "Q3"))
+            plan_path = root / "paper/PAPER_PLAN.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["paper_structure"] = [
+                {
+                    "section_id": "SEC-SHARED",
+                    "title": "共同机理与统一变量",
+                    "purpose": "建立问题一和问题二共享的守恒机制。",
+                    "subproblem_ids": ["Q1", "Q2"],
+                    "claim_ids": ["CLM-Q1", "CLM-Q2"],
+                },
+                {
+                    "section_id": "SEC-Q2-ALGORITHM",
+                    "title": "约束算法与收敛判据",
+                    "purpose": "完成问题二的算法推导并解释已有收敛证据。",
+                    "subproblem_ids": ["Q2"],
+                    "claim_ids": ["CLM-Q2"],
+                },
+                {
+                    "section_id": "SEC-Q3-RESULT",
+                    "title": "方案比较与结论边界",
+                    "purpose": "用已验证结果回答问题三并说明适用范围。",
+                    "subproblem_ids": ["Q3"],
+                    "claim_ids": ["CLM-Q3"],
+                },
+            ]
+            write_json(root, "paper/PAPER_PLAN.json", plan)
+
+            manifest_path = initialize(root, "Synthetic structured paper", 2026, "守恒机制；约束优化；收敛分析；方案比较")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            main = (root / "paper/main.tex").read_text(encoding="utf-8")
+            inputs = [
+                r"\input{sections/10_sec_shared}",
+                r"\input{sections/20_sec_q2_algorithm}",
+                r"\input{sections/30_sec_q3_result}",
+            ]
+            self.assertEqual(sorted((main.index(value), value) for value in inputs), [(main.index(value), value) for value in inputs])
+
+            mappings = {(item["subproblem_id"], item["path"]) for item in manifest["subproblem_sections"]}
+            self.assertIn(("Q1", "paper/sections/10_sec_shared.tex"), mappings)
+            self.assertIn(("Q2", "paper/sections/10_sec_shared.tex"), mappings)
+            self.assertIn(("Q2", "paper/sections/20_sec_q2_algorithm.tex"), mappings)
+            latex_findings = check_latex_template(
+                manifest,
+                root,
+                "paper/LATEX_TEMPLATE_MANIFEST.json",
+                {"Q1", "Q2", "Q3"},
+                {},
+                "paper",
+            )
+            self.assertFalse({"LATEX-E003", "LATEX-E006", "LATEX-E007"} & {item.rule_id for item in latex_findings})
+
+            shared = (root / "paper/sections/10_sec_shared.tex").read_text(encoding="utf-8")
+            all_planned = "\n".join(
+                (root / rel).read_text(encoding="utf-8")
+                for rel in manifest["section_files"]
+                if rel not in {
+                    "paper/sections/00_abstract.tex",
+                    "paper/sections/98_references.tex",
+                    "paper/sections/99_appendix.tex",
+                }
+            )
+            self.assertIn(r"\section{共同机理与统一变量}", shared)
+            self.assertIn("% Writing purpose: 建立问题一和问题二共享的守恒机制。", shared)
+            self.assertIn("% Supported claims (sidecar only): CLM-Q1, CLM-Q2", shared)
+            self.assertNotIn(r"\subsection{任务、机制与路线}", all_planned)
+            self.assertNotIn(r"\subsection{模型、推导与求解}", all_planned)
+            self.assertNotIn(r"\subsection{结果、检验与结论边界}", all_planned)
+            rendered_source = "\n".join(line for line in shared.splitlines() if not line.lstrip().startswith("%"))
+            self.assertNotIn("CLM-Q1", rendered_source)
+            self.assertNotIn("SEC-SHARED", rendered_source)
+
+            metadata = (root / "paper/metadata.tex").read_text(encoding="utf-8")
+            self.assertIn("守恒机制；约束优化；收敛分析；方案比较", metadata)
+            self.assertNotIn("可复现计算", metadata)
+            self.assertNotIn("证据链", metadata)
+
+    def test_workflow_oriented_keyword_defaults_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root)
+            with self.assertRaisesRegex(ValueError, "actual problem"):
+                initialize(root, "No filler keywords", 2026, "数学建模；可复现计算；证据链")
 
     def test_refuses_to_overwrite_existing_sources(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -131,11 +218,35 @@ class LatexTemplateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exactly cover"):
                 initialize(root, "mismatch", 2026, "mismatch")
 
+    def test_official_format_material_is_never_overridden_by_generic_scaffold(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_inputs(root)
+            official = root / "problem/official/官方论文格式模板.tex"
+            official.parent.mkdir(parents=True, exist_ok=True)
+            official.write_text("% official template\n", encoding="utf-8")
+            manifest = envelope("source_manifest")
+            manifest["sources"] = [
+                {
+                    "source_id": "SRC-FORMAT",
+                    "path": "problem/official/官方论文格式模板.tex",
+                    "origin": "official",
+                    "authoritative_for": ["paper_format"],
+                }
+            ]
+            write_json(root, "problem/SOURCE_MANIFEST.json", manifest)
+            before = official.read_bytes()
+            with self.assertRaisesRegex(ValueError, "official format/rule material"):
+                initialize(root, "must adapt official", 2026, "实际关键词")
+            self.assertEqual(official.read_bytes(), before)
+            self.assertFalse((root / "paper/main.tex").exists())
+
     def test_final_placeholder_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_v04_project(root)
-            section = root / "paper" / "sections" / "10_question_q1.tex"
+            manifest = json.loads((root / "paper/LATEX_TEMPLATE_MANIFEST.json").read_text(encoding="utf-8"))
+            section = root / manifest["subproblem_sections"][0]["path"]
             section.write_text(section.read_text(encoding="utf-8") + "\n% CUMCM-TODO\n", encoding="utf-8")
             findings, _ = check_project(root, "paper", "strict")
             self.assertIn("LATEX-E008", {item.rule_id for item in findings})

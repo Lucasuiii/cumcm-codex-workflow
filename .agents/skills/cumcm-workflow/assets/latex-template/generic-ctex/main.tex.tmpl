@@ -15,10 +15,34 @@
 \setlength{\parindent}{2em}
 \setlength{\parskip}{0pt}
 \linespread{1.25}
-\captionsetup{font=small,labelfont=bf,labelsep=quad,justification=centering,singlelinecheck=false}
+\ctexset{
+  section={beforeskip=1.7ex plus .4ex minus .2ex,afterskip=.9ex plus .2ex,format=\zihao{3}\bfseries},
+  subsection={beforeskip=1.3ex plus .3ex minus .2ex,afterskip=.6ex plus .2ex,format=\zihao{4}\bfseries},
+  subsubsection={beforeskip=1.0ex plus .2ex,afterskip=.4ex,format=\zihao{-4}\bfseries}
+}
+\captionsetup{font=small,labelfont=bf,labelsep=quad,justification=centering,singlelinecheck=true,skip=6pt}
 \setlist{nosep,leftmargin=2.2em}
 \setlength{\abovedisplayskip}{8pt plus 2pt minus 2pt}
 \setlength{\belowdisplayskip}{8pt plus 2pt minus 2pt}
+\setlength{\abovedisplayshortskip}{5pt plus 2pt}
+\setlength{\belowdisplayshortskip}{5pt plus 2pt}
+\setlength{\textfloatsep}{12pt plus 3pt minus 3pt}
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{10pt plus 2pt minus 2pt}
+\setlength{\LTpre}{6pt}
+\setlength{\LTpost}{6pt}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{5pt}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.75}
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
 \hypersetup{pdftitle={\papertitle},pdfsubject={CUMCM mathematical modeling paper}}
 
 \pagestyle{plain}
@@ -34,11 +58,7 @@
 \input{sections/00_abstract}
 \clearpage
 
-\input{sections/01_restatement}
-\input{sections/02_analysis}
-\input{sections/04_symbols}
-@@QUESTION_INPUTS@@
-\input{sections/92_conclusion}
+@@PLANNED_SECTION_INPUTS@@
 \input{sections/98_references}
 
 \appendix

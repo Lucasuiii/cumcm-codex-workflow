@@ -135,7 +135,9 @@ verified results
   -> rendered PDF QA
 ```
 
-There is no minimum figure or page count. A figure-light plan raises a warning to reconsider communication, not a failure. The v0.5 scaffold uses broad narrative sections and allows restructuring instead of repeating a rigid analysis-assumption-model-solve template.
+`PAPER_PLAN.paper_structure` is the source of truth for body-section titles, purposes, covered subproblems, supported claims, and order. The LaTeX initializer only converts it into section files and `main.tex` input order: one section may serve several subproblems, and one complex subproblem may span several mathematically meaningful sections. It no longer generates a fixed three-subsection tree per question. The abstract follows problem -> core method -> key result -> meaning/validation, and keywords come from the actual object, model, or method.
+
+Every table or figure should solve a specific reading or evidence problem, such as fit, residual structure, comparison, sensitivity, convergence, or robustness, and must use existing computation/validation evidence. Paper writing does not invent experiments for polish, and there is no minimum figure or page count. Current official rules/templates override the generic scaffold; high-quality reference papers provide transferable principles only.
 
 Final QA checks captions, tables, equations, page density, figure placement, fonts/glyphs, overflow, clipping, whitespace, and cross-page continuity. Internal IDs, evidence states, local paths, and workflow language remain blocking visible-text leaks; excessive precision and number-dense sentences are warnings.
 

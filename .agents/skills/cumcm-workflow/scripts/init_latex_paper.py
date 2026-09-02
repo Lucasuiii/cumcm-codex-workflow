@@ -46,7 +46,40 @@ def latex_escape(value: str) -> str:
 
 def safe_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").lower()
-    return slug or "question"
+    return slug or "section"
+
+
+def comment_text(value: Any) -> str:
+    """Keep paper-plan metadata readable but inert inside LaTeX comments."""
+    return " ".join(str(value).replace("%", "％").split())
+
+
+def validate_keywords(keywords: str) -> str:
+    value = keywords.strip()
+    if not value:
+        raise ValueError("provide --keywords from the actual problem, model, or method")
+    folded = value.casefold()
+    banned = ("数学建模", "可复现计算", "证据链", "reproducible computation", "evidence chain")
+    if any(term in folded for term in banned):
+        raise ValueError("keywords must name the actual problem, model, data, or method, not workflow concepts")
+    return value
+
+
+def official_format_sources(project: Path) -> list[str]:
+    manifest_path = project / "problem" / "SOURCE_MANIFEST.json"
+    if not manifest_path.is_file():
+        return []
+    manifest = read_object(manifest_path)
+    matches: list[str] = []
+    for source in manifest.get("sources", []):
+        if not isinstance(source, dict) or source.get("origin") not in {"official", "organizer_attachment"}:
+            continue
+        tags = " ".join(str(value) for value in source.get("authoritative_for", [])).casefold()
+        path = str(source.get("path", ""))
+        name = path.casefold()
+        if any(token in tags or token in name for token in ("format", "rule", "template", "格式", "规则", "模板")):
+            matches.append(path)
+    return matches
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -76,9 +109,19 @@ def validate_inputs(project: Path) -> tuple[dict[str, Any], dict[str, Any], dict
         for item in subproblems
         if isinstance(item, dict) and (item.get("subproblem_id") or item.get("id"))
     }
+    structure = plan.get("paper_structure")
+    if not isinstance(structure, list) or not structure:
+        raise ValueError("PAPER_PLAN.json must contain a non-empty paper_structure")
+    for index, item in enumerate(structure, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"paper_structure item {index} must be an object")
+        if not all(comment_text(item.get(field, "")) for field in ("section_id", "title", "purpose")):
+            raise ValueError(f"paper_structure item {index} requires section_id, title, and purpose")
+        if not isinstance(item.get("subproblem_ids"), list) or not isinstance(item.get("claim_ids"), list):
+            raise ValueError(f"paper_structure item {index} requires subproblem_ids and claim_ids arrays")
     plan_ids = {
         str(subproblem_id)
-        for item in plan.get("paper_structure", [])
+        for item in structure
         if isinstance(item, dict)
         for subproblem_id in item.get("subproblem_ids", [])
         if str(subproblem_id)
@@ -111,10 +154,16 @@ def commit_staged_tree(staging: Path, paper_dir: Path) -> None:
 
 
 def initialize(project: Path, title: str, competition_year: int, keywords: str) -> Path:
-    state, facts, _ = validate_inputs(project)
+    state, _, plan = validate_inputs(project)
     skill_root = Path(__file__).resolve().parents[1]
     template_root = skill_root / "assets" / "latex-template" / "generic-ctex"
     template_meta = read_object(template_root / "template.json")
+    format_sources = official_format_sources(project)
+    if format_sources:
+        raise ValueError(
+            "official format/rule material is present; adapt it before using the generic scaffold: "
+            + ", ".join(format_sources)
+        )
     paper_dir = project / "paper"
     protected_targets = [paper_dir / "main.tex", paper_dir / "metadata.tex", paper_dir / "macros.tex", paper_dir / "references.bib", paper_dir / "sections", paper_dir / "LATEX_TEMPLATE_MANIFEST.json"]
     conflicts = [path for path in protected_targets if path.exists()]
@@ -122,9 +171,10 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
         listed = ", ".join(path.relative_to(project).as_posix() for path in conflicts)
         raise ValueError(f"refusing to overwrite existing paper sources: {listed}")
 
-    subproblems = [item for item in facts["subproblems"] if isinstance(item, dict)]
-    question_records: list[dict[str, str]] = []
-    question_inputs: list[str] = []
+    structure = [item for item in plan["paper_structure"] if isinstance(item, dict)]
+    subproblem_records: list[dict[str, str]] = []
+    section_inputs: list[str] = []
+    chosen_keywords = validate_keywords(keywords)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     temp_parent = project / ".cumcm" / "tmp"
     temp_parent.mkdir(parents=True, exist_ok=True)
@@ -132,31 +182,38 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
         staging = Path(temp) / "paper"
         sections = staging / "sections"
         sections.mkdir(parents=True)
-        for source in sorted((template_root / "sections").glob("*.tex")):
-            shutil.copy2(source, sections / source.name)
+        for name in ("00_abstract.tex", "98_references.tex", "99_appendix.tex"):
+            shutil.copy2(template_root / "sections" / name, sections / name)
         shutil.copy2(template_root / "macros.tex", staging / "macros.tex")
         shutil.copy2(template_root / "references.bib", staging / "references.bib")
 
-        question_template = (template_root / "question.tex.tmpl").read_text(encoding="utf-8")
-        for index, item in enumerate(subproblems, 1):
-            subproblem_id = str(item.get("subproblem_id") or item.get("id"))
-            request = str(item.get("request") or subproblem_id)
-            filename = f"{index * 10:02d}_question_{safe_slug(subproblem_id)}.tex"
+        section_template = (template_root / "planned-section.tex.tmpl").read_text(encoding="utf-8")
+        for index, item in enumerate(structure, 1):
+            section_id = str(item.get("section_id", ""))
+            title_value = comment_text(item.get("title", ""))
+            purpose = comment_text(item.get("purpose", ""))
+            subproblem_ids = [str(value) for value in item.get("subproblem_ids", [])]
+            claim_ids = [str(value) for value in item.get("claim_ids", [])]
+            filename = f"{index * 10:02d}_{safe_slug(section_id or title_value)}.tex"
             rel = f"paper/sections/{filename}"
             content = render(
-                question_template,
+                section_template,
                 {
-                    "QUESTION_TITLE": latex_escape(f"{subproblem_id}：{request}"),
-                    "SUBPROBLEM_ID": subproblem_id,
+                    "SECTION_TITLE": latex_escape(title_value),
+                    "SECTION_ID": comment_text(section_id),
+                    "SECTION_PURPOSE": comment_text(purpose),
+                    "SUBPROBLEM_IDS": comment_text(", ".join(subproblem_ids) or "none"),
+                    "CLAIM_IDS": comment_text(", ".join(claim_ids) or "none"),
                 },
             )
             (sections / filename).write_text(content, encoding="utf-8")
-            question_records.append({"subproblem_id": subproblem_id, "path": rel})
-            question_inputs.append(f"\\input{{sections/{filename[:-4]}}}")
+            for subproblem_id in subproblem_ids:
+                subproblem_records.append({"subproblem_id": subproblem_id, "path": rel})
+            section_inputs.append(f"\\input{{sections/{filename[:-4]}}}")
 
         main_text = render(
             (template_root / "main.tex.tmpl").read_text(encoding="utf-8"),
-            {"QUESTION_INPUTS": "\n".join(question_inputs)},
+            {"PLANNED_SECTION_INPUTS": "\n".join(section_inputs)},
         )
         metadata_text = render(
             (template_root / "metadata.tex.tmpl").read_text(encoding="utf-8"),
@@ -164,7 +221,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
                 "PROJECT_ID": str(state["project_id"]),
                 "TITLE": latex_escape(title),
                 "COMPETITION_YEAR": str(competition_year),
-                "KEYWORDS": latex_escape(keywords),
+                "KEYWORDS": latex_escape(chosen_keywords),
             },
         )
         (staging / "main.tex").write_text(main_text, encoding="utf-8")
@@ -190,7 +247,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
             "main_path": "paper/main.tex",
             "metadata_path": "paper/metadata.tex",
             "section_files": section_files,
-            "subproblem_sections": question_records,
+            "subproblem_sections": subproblem_records,
             "required_files": required_files,
             "placeholder_markers": ["CUMCM-TODO", "\\placeholder{"],
             "template_source": f"repo_asset:{TEMPLATE_ID}@{WORKFLOW_VERSION}",
@@ -207,7 +264,7 @@ def main() -> int:
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--title", default="全国大学生数学建模竞赛论文")
     parser.add_argument("--competition-year", type=int, default=datetime.now().year)
-    parser.add_argument("--keywords", default="数学建模；可复现计算；证据链")
+    parser.add_argument("--keywords", required=True, help="semicolon-separated keywords from the actual problem, model, or method")
     args = parser.parse_args()
     project = args.project.resolve()
     if not project.is_dir():

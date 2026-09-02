@@ -12,7 +12,7 @@ Use the project preference (`matlab` preferred, `python` fallback, `auto` select
 - Python often fits heterogeneous data cleaning, CSV/Excel automation, machine learning, text/web data, or an existing Python codebase.
 - Availability, required toolbox/package, implementation complexity, existing code, and runtime stability override preference.
 
-Run `scripts/backend_selection.py` when a recorded deterministic selection is useful. Once selected, implement and officially execute that language only. Do not build a second backend for parity unless the user explicitly requests cross-implementation validation. If the selected runtime is unavailable or unreliable, record the reason and switch to the configured fallback.
+Run `scripts/backend_selection.py` when a recorded deterministic selection is useful. MATLAB detection checks explicit `implementation.matlab_executable`, then `matlab` on PATH, then macOS `/Applications/MATLAB_R*.app/bin/matlab` with newer releases first. A preferred or explicitly selected backend may fall back when unavailable; a task `required_backend` is a hard runtime requirement and must error rather than switch. Once selected, implement and officially execute that language only. Do not build a second backend for parity unless the user explicitly requests cross-implementation validation.
 
 The mathematical formulation, variable meanings, result IDs, and acceptance checks remain language-neutral.
 
@@ -30,4 +30,4 @@ Failed or exploratory runs may remain for local debugging with `official_run: fa
 
 Every result uses an exact `path#JSON-pointer` into a declared claim-bearing JSON output. Keep unrounded values authoritative and display rounding separate. A successful exit code proves execution, not model correctness, so include problem-specific feasibility, residual, conservation, baseline, or stability checks when they matter.
 
-Before validation, build `modeling-computation` and `computation-validation` handoffs. The latter points to canonical official runs/results; the independent reviewer package is the context-separated review payload derived from those artifacts.
+Before validation, build `modeling-computation` and `computation-validation` handoffs. The latter points to canonical official runs/results. The context-separated reviewer package copies only the official inputs, problem/model contracts, results index, cited successful official runs, matching source snapshots, formal inputs, claim-bearing outputs, and review instructions. It excludes failed/exploratory runs and stdout/stderr/debug history.

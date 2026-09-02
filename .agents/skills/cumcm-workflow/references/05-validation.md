@@ -8,7 +8,7 @@ Build the current computation handoff, then run:
 python3 scripts/build_independent_review_package.py --project <project>
 ```
 
-The package binds official inputs, model contracts, selected source, official runs, and executed outputs with file hashes, an upstream digest, and a package digest. Stop and let the user route it to a separate task or human. Record both originating and reviewer task references; they must differ. Same-model fresh-context review remains correlated. Task references and user confirmation improve context-separation evidence but cannot cryptographically prove reviewer independence.
+The package binds only canonical evidence for formal results: official inputs, problem/model contracts, `RESULTS_INDEX.json`, cited successful `official_run: true` manifests, matching source snapshots, formal inputs, claim-bearing outputs, and review instructions. Failed/exploratory runs, stdout/stderr, full logs, and debug history are excluded; package/upstream freshness digests cover this same canonical set. Stop and let the user route it to a separate task or human. Record both originating and reviewer task references; they must differ. Same-model fresh-context review remains correlated. Task references and user confirmation improve context-separation evidence but cannot cryptographically prove reviewer independence.
 
 ## Findings and verdicts
 
@@ -18,10 +18,10 @@ The package binds official inputs, model contracts, selected source, official ru
 
 Verdicts are `accepted`, `accepted_with_concerns`, `revision_required`, and `inconclusive`. Only an open P0 permits `revision_required`. Open P1/P2 items remain visible as warnings or suggestions and do not block paper work.
 
-After a full review returns open P0 findings, rerunning the package builder in auto mode defaults to a targeted re-review. It archives the prior review/package and targets every prior open P0. Do not turn unrelated newly noticed P1/P2 items into new blockers. A genuinely new P0 may still require revision.
+After a full review returns open P0 findings, rerunning the package builder in auto mode defaults to a targeted re-review. It archives the prior review/package and targets every prior open P0. The new package embeds `TARGETED_FINDINGS.json` with only `finding_id`, `category`, `location`, `evidence`, and `recommendation`, so a fresh reviewer can work from the package alone without receiving the full old review. Do not turn unrelated newly noticed P1/P2 items into new blockers. A genuinely new P0 may still require revision.
 
 ## Claims
 
 Create `CLAIM_LEDGER.json` from the reviewed evidence. Each paper-bearing claim records its exact text, scope, evidence IDs, evidence state, and limitations. Strong claims—global optimality, equivalence, causality, robustness, significance, or reproducibility—still need claim-specific support. `reproduced` requires an isolated rerun and comparison; an original successful run is only `supported_not_reproduced` unless stronger evidence exists.
 
-Before paper writing, build `validation-paper`. Its compact payload contains the problem summary, model summary, verified results, selected claims, limitations, a draft figure/table representation plan, and identified official-format files. A fresh paper task reads this handoff first and does not scan full run/debug history.
+Before paper writing, build `validation-paper`. Its limitations come from claim limitations, unresolved/accepted P1 concerns, and explicit model applicability, assumptions, and known limitations—not model `scope`. Its `representation_candidates` proactively identify trend, multi-group comparison, distribution, sensitivity, model-performance, and spatial/network/clustering evidence. A fresh paper task reads this compact handoff first, chooses prose/equation/table/figure, and does not scan full run/debug history.

@@ -45,6 +45,8 @@ Treat findings by consequence:
 
 Independent validation uses `accepted`, `accepted_with_concerns`, `revision_required`, or `inconclusive`. Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of those findings. A genuinely new P0 may still block; P1/P2 findings do not grow an endless blocking queue.
 
+The independent review package contains only canonical evidence for formally indexed results: official inputs, problem/model contracts, `RESULTS_INDEX.json`, cited successful official runs, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Exclude failed/exploratory runs, stdout/stderr, full logs, and debug history. Targeted packages must carry the compact self-contained `TARGETED_FINDINGS.json`; do not copy the full prior review into the package.
+
 ## Computation backend
 
 Project state defaults to:
@@ -53,7 +55,7 @@ Project state defaults to:
 {"preferred":"matlab","fallback":"python","selection":"auto"}
 ```
 
-Use `scripts/backend_selection.py` or the same criteria to choose one backend for each official task. Consider numerical methods, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV work, machine learning, available toolboxes/packages, existing code, complexity, and runtime stability. MATLAB preference breaks ties; it is not mandatory. Once selected, implement and officially run one language only. Switch to fallback when the chosen runtime or dependency cannot execute reliably. Do not create parity implementations unless the user explicitly requests them.
+Use `scripts/backend_selection.py` or the same criteria to choose one backend for each official task. Consider numerical methods, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV work, machine learning, available toolboxes/packages, existing code, complexity, and runtime stability. MATLAB preference breaks ties; it is not mandatory. Detect MATLAB from explicit `implementation.matlab_executable`, PATH, then macOS `/Applications/MATLAB_R*.app/bin/matlab`. An unavailable preferred backend may fall back; an unavailable task `required_backend` must fail. Once selected, implement and officially run one language only. Do not create parity implementations unless the user explicitly requests them.
 
 Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs, outputs, assertions, and `official_run: true`. Results may cite only successful official runs and exact `path#JSON-pointer` values.
 
@@ -64,7 +66,7 @@ Every official run records the selected language, rationale, runtime, dependenci
 - Keep mathematical model and result contracts language-neutral.
 - Use SHA-256 only for evidence-critical identity: official sources, formal inputs, claim-bearing outputs, compact snapshots/handoffs, review packages, selected source trees, and the reviewed final PDF.
 - Keep internal IDs, evidence states, local paths, run coverage, and workflow language out of the visible paper.
-- Paper writing selects claims and the best representation—prose, equation, table, or figure—before LaTeX drafting. No minimum figure/page count is a hard gate.
+- Paper handoff limitations come from claim limitations, P1 concerns, and explicit applicability/assumption/known-limitation fields—not model scope. It proactively supplies representation candidates; the paper task selects prose, equation, table, or figure. No minimum figure/page count is a hard gate.
 - Bind the final PDF to its reviewed bytes and to the exact editable LaTeX source snapshot used for compilation.
 - Missing current official rules or templates blocks delivery; it does not authorize autonomous search or submission.
 - Final delivery contains the reviewed PDF, editable LaTeX, and computation source as separate roles.

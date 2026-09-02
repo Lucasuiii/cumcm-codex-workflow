@@ -757,8 +757,34 @@ def check_independent_review_package(data: Any, root: Path, path: str) -> list[F
         findings.append(finding("IREVIEW-E017", "error", "execution", "validation", path, "independent review upstream digest is stale"))
     if data.get("review_mode") == "targeted":
         previous = safe_project_path(root, data.get("previous_review_path"))
-        if previous is None or not previous.is_file() or not as_list(data.get("target_finding_ids")):
-            findings.append(finding("IREVIEW-E018", "error", "semantic", "validation", path, "targeted re-review requires a previous review and target P0 finding IDs"))
+        targeted_file = next(
+            (item for item in files if isinstance(item, dict) and str(item.get("path", "")).endswith("/TARGETED_FINDINGS.json")),
+            None,
+        )
+        targeted_path = safe_project_path(root, targeted_file.get("path")) if isinstance(targeted_file, dict) else None
+        targeted_data, targeted_error = read_json(targeted_path) if targeted_path is not None and targeted_path.is_file() else (None, "missing")
+        required_targeted_fields = {"finding_id", "category", "location", "evidence", "recommendation"}
+        packaged_findings = as_list(targeted_data.get("findings") if isinstance(targeted_data, dict) else [])
+        packaged_ids = {
+            item_id(item, "finding_id")
+            for item in packaged_findings
+            if isinstance(item, dict)
+        }
+        target_ids = {str(value) for value in as_list(data.get("target_finding_ids"))}
+        targeted_is_self_contained = (
+            isinstance(targeted_data, dict)
+            and targeted_data.get("review_mode") == "targeted"
+            and nonempty(targeted_data.get("source_review_id"))
+            and bool(packaged_findings)
+            and all(
+                isinstance(item, dict)
+                and set(item) == required_targeted_fields
+                and all(nonempty(item.get(field)) for field in required_targeted_fields)
+                for item in packaged_findings
+            )
+        )
+        if previous is None or not previous.is_file() or not target_ids or targeted_error or packaged_ids != target_ids or not targeted_is_self_contained:
+            findings.append(finding("IREVIEW-E018", "error", "semantic", "validation", path, "targeted re-review requires previous-review provenance and a self-contained target P0 finding brief"))
     selection = data.get("reviewer_selection")
     if not isinstance(selection, dict) or selection.get("status") != "user_confirmed":
         findings.append(finding("IREVIEW-E005", "error", "semantic", "validation", path, "the user must choose and confirm the reviewer before validation", gate_only=True))
@@ -1394,7 +1420,7 @@ def check_handoff(data: Any, root: Path, path: str, expected_transition: str) ->
         findings.append(finding("HANDOFF-E004", "error", "execution", upstream, path, "handoff upstream digest is stale"))
     if expected_transition == "validation-paper":
         payload = data.get("payload")
-        required = {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "figure_table_plan", "official_format_files"}
+        required = {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files"}
         if not isinstance(payload, dict) or not required.issubset(payload):
             findings.append(finding("HANDOFF-E005", "error", "structural", "validation", path, "paper handoff lacks the compact canonical paper brief"))
     return findings

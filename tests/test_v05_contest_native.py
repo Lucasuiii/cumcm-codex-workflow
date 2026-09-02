@@ -13,7 +13,8 @@ SCRIPTS = ROOT / ".agents" / "skills" / "cumcm-workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from backend_selection import select_backend
+from backend_selection import detect_matlab_executable, select_backend
+from build_handoff import build as build_handoff
 from build_independent_review_package import build as build_review_package
 from init_latex_paper import commit_staged_tree
 from migrate_v04_to_v05 import migrate
@@ -101,22 +102,40 @@ class ContestNativeV05Tests(unittest.TestCase):
             prior["review_id"] = "REVIEW-FULL-001"
             prior["verdict"] = "revision_required"
             prior["findings"] = [review_finding("REV-P0-001", "P0", "open")]
-            write_json(root, "validation/review-history/REVIEW-FULL-001.json", prior)
-
-            package_path = root / "validation" / "independent-review-package" / "REVIEW_PACKAGE_MANIFEST.json"
+            write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", prior)
+            (root / "model/VALIDATION_PLAN.md").write_text("# Validation plan\n", encoding="utf-8")
+            shutil.rmtree(root / "validation" / "independent-review-package")
+            package_path = build_review_package(root)
             package = json.loads(package_path.read_text(encoding="utf-8"))
-            package.update({"review_mode": "targeted", "previous_review_path": "validation/review-history/REVIEW-FULL-001.json", "target_finding_ids": ["REV-P0-001"]})
+            package["reviewer_selection"] = {
+                "status": "user_confirmed",
+                "selected_by": "fixture-user",
+                "reviewer": "fixture-reviewer",
+                "model": "fixture-model",
+                "originating_task_ref": "fixture-origin-task",
+                "task_ref": "fixture-targeted-task",
+            }
             write_json(root, "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json", package)
+
+            targeted = json.loads((root / "validation/independent-review-package/TARGETED_FINDINGS.json").read_text(encoding="utf-8"))
+            self.assertEqual(targeted["source_review_id"], "REVIEW-FULL-001")
+            self.assertEqual(
+                set(targeted["findings"][0]),
+                {"finding_id", "category", "location", "evidence", "recommendation"},
+            )
+            self.assertFalse(any(item.get("source_path", "").startswith("validation/review-history/") for item in package["files"]))
 
             result = json.loads(current_path.read_text(encoding="utf-8"))
             result.update({
                 "review_id": "REVIEW-TARGETED-002",
+                "package_digest": package["package_digest"],
                 "review_mode": "targeted",
-                "previous_review_path": "validation/review-history/REVIEW-FULL-001.json",
+                "previous_review_path": package["previous_review_path"],
                 "target_finding_ids": ["REV-P0-001"],
                 "verdict": "accepted",
                 "findings": [review_finding("REV-P0-001", "P0", "resolved")],
             })
+            result["reviewer_context"]["task_ref"] = "fixture-targeted-task"
             write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", result)
             findings, summary = check_project(root, "validation", "strict", "enforce")
             rules = {item.rule_id for item in findings}
@@ -195,6 +214,41 @@ class ContestNativeV05Tests(unittest.TestCase):
         self.assertEqual(result["selected_language"], "python")
         self.assertEqual(result["fallback_from"], "matlab")
 
+    def test_configured_matlab_executable_has_detection_priority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "custom-matlab"
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o755)
+            detected = detect_matlab_executable({"matlab_executable": str(executable)})
+            self.assertEqual(detected, {"path": str(executable.resolve()), "source": "configured"})
+
+    def test_matlab_detection_uses_path_before_macos_applications(self):
+        with mock.patch("backend_selection.shutil.which", return_value="/opt/matlab/bin/matlab"), mock.patch(
+            "backend_selection.glob.glob", return_value=["/Applications/MATLAB_R2026b.app/bin/matlab"]
+        ) as app_glob:
+            detected = detect_matlab_executable({})
+        self.assertEqual(detected, {"path": "/opt/matlab/bin/matlab", "source": "path"})
+        app_glob.assert_not_called()
+
+    def test_matlab_detection_uses_newest_macos_application(self):
+        candidates = [
+            "/Applications/MATLAB_R2025b.app/bin/matlab",
+            "/Applications/MATLAB_R2026a.app/bin/matlab",
+        ]
+        with mock.patch("backend_selection.shutil.which", return_value=None), mock.patch(
+            "backend_selection.glob.glob", return_value=candidates
+        ), mock.patch("backend_selection.executable_path", side_effect=lambda value: value):
+            detected = detect_matlab_executable({})
+        self.assertEqual(detected, {"path": candidates[1], "source": "macos_application"})
+
+    def test_required_matlab_does_not_silently_fallback(self):
+        with self.assertRaisesRegex(ValueError, "required backend is unavailable: matlab"):
+            select_backend(
+                {"features": ["data_cleaning"], "required_backend": "matlab"},
+                {"preferred": "matlab", "fallback": "python", "selection": "auto"},
+                {"matlab": False, "python": True},
+            )
+
     def test_paper_handoff_stale_detection(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -214,9 +268,85 @@ class ContestNativeV05Tests(unittest.TestCase):
             self.assertFalse(any(item["path"].startswith("runs/") for item in handoff["canonical_artifacts"]))
             self.assertEqual(
                 set(handoff["payload"]),
-                {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "figure_table_plan", "official_format_files"},
+                {"problem_summary", "model_summary", "verified_results", "claims", "limitations", "representation_candidates", "official_format_files"},
             )
             self.assertIn("debug transcripts", handoff["excluded_history"])
+
+    def test_paper_handoff_uses_real_limitations_and_proactive_representation_candidates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_v04_project(root)
+            claims_path = root / "validation" / "CLAIM_LEDGER.json"
+            claims = json.loads(claims_path.read_text(encoding="utf-8"))
+            claims["claims"][0]["text"] = "The cost trend compares multiple policies over time."
+            claims["claims"][0]["limitations"] = "Only the observed time window is supported."
+            claims["claims"][0]["evidence"].pop("figure_ids", None)
+            write_json(root, "validation/CLAIM_LEDGER.json", claims)
+
+            model_path = root / "model" / "MODEL_CONTRACT.json"
+            model = json.loads(model_path.read_text(encoding="utf-8"))
+            model_scope = model["components"][0]["scope"]
+            model["components"][0]["assumptions"] = ["Demand remains stationary."]
+            model["components"][0]["known_limitations"] = ["Not calibrated for regime shifts."]
+            write_json(root, "model/MODEL_CONTRACT.json", model)
+
+            review_path = root / "validation" / "INDEPENDENT_REVIEW_RESULT.json"
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["verdict"] = "accepted_with_concerns"
+            review["findings"] = [review_finding("REV-P1-001", "P1", "accepted_concern")]
+            write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", review)
+
+            handoff_path = build_handoff(root, "validation-paper")
+            payload = json.loads(handoff_path.read_text(encoding="utf-8"))["payload"]
+            limitation_text = json.dumps(payload["limitations"], ensure_ascii=False)
+            self.assertNotIn(model_scope, limitation_text)
+            self.assertIn("Only the observed time window is supported.", limitation_text)
+            self.assertIn("Demand remains stationary.", limitation_text)
+            self.assertIn("Not calibrated for regime shifts.", limitation_text)
+            self.assertIn("REV-P1-001", limitation_text)
+            kinds = {item["kind"] for item in payload["representation_candidates"]}
+            self.assertTrue({"trend", "multi_group_comparison"}.issubset(kinds))
+
+    def test_review_package_contains_only_canonical_official_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            shutil.rmtree(root / "validation" / "independent-review-package")
+            (root / "model/VALIDATION_PLAN.md").write_text("# Validation plan\n", encoding="utf-8")
+
+            unused_code = root / "code" / "unused_experiment.py"
+            unused_code.write_text("print('unused')\n", encoding="utf-8")
+            official_run_path = root / "runs/RUN-Q1-001/RUN_MANIFEST.json"
+            official_run = json.loads(official_run_path.read_text(encoding="utf-8"))
+            for name, role in (("diagnostic.json", "diagnostic_output"), ("intermediate.json", "intermediate_output")):
+                output_path = root / "runs/RUN-Q1-001/outputs" / name
+                output_path.write_text("{}\n", encoding="utf-8")
+                official_run["outputs"].append(
+                    {"path": output_path.relative_to(root).as_posix(), "evidence_role": role, "size": 3, "media_type": "application/json"}
+                )
+            write_json(root, "runs/RUN-Q1-001/RUN_MANIFEST.json", official_run)
+
+            failed_dir = root / "runs/RUN-FAILED-001"
+            failed_dir.mkdir(parents=True)
+            failed = dict(official_run)
+            failed.update({"run_id": "RUN-FAILED-001", "official_run": False, "status": "failed", "exit_code": 1})
+            write_json(root, "runs/RUN-FAILED-001/RUN_MANIFEST.json", failed)
+            (failed_dir / "stdout.log").write_text("debug history\n", encoding="utf-8")
+
+            manifest_path = build_review_package(root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            source_paths = {item.get("source_path") for item in manifest["files"] if item.get("source_path")}
+            self.assertIn("problem/official/problem.txt", source_paths)
+            self.assertIn("results/RESULTS_INDEX.json", source_paths)
+            self.assertIn("runs/RUN-Q1-001/RUN_MANIFEST.json", source_paths)
+            self.assertIn("code/solve.py", source_paths)
+            self.assertIn("runs/RUN-Q1-001/outputs/result.json", source_paths)
+            self.assertNotIn("runs/RUN-Q1-001/stdout.log", source_paths)
+            self.assertNotIn("runs/RUN-Q1-001/stderr.log", source_paths)
+            self.assertNotIn("runs/RUN-Q1-001/outputs/diagnostic.json", source_paths)
+            self.assertNotIn("runs/RUN-Q1-001/outputs/intermediate.json", source_paths)
+            self.assertNotIn("runs/RUN-FAILED-001/RUN_MANIFEST.json", source_paths)
+            self.assertNotIn("code/unused_experiment.py", source_paths)
 
     def test_handoffs_bind_only_canonical_downstream_evidence(self):
         with tempfile.TemporaryDirectory() as temp:

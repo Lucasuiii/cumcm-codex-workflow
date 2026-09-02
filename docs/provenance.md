@@ -6,4 +6,6 @@
 
 SHA-256 只用于字节身份确实会影响证据的对象：官方来源、formal input、claim-bearing output、selected source tree、stage snapshot/handoff、review package 和最终批准 PDF。Digest 证明身份，不证明数学正确性。
 
+Independent review package 的 package/upstream digest 只覆盖正式结果引用的 canonical evidence 与复核说明；失败/探索 run、stdout/stderr、旧实验和 debug history 默认不进入包，也不扩大 freshness 范围。
+
 如果引入公开上游软件，在合并前记录其仓库 URL、精确 revision、许可证、实际使用文件和本项目修改。不要把第三方设计、模板或代码描述为本仓库原创。

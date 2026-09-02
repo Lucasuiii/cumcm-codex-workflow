@@ -2,6 +2,8 @@
 
 Start in a fresh task when practical. Read `handoffs/validation-paper/HANDOFF.json` first; open upstream files only through its canonical pointers. Do not load failed runs, debug logs, or old review conversations unless a current P0 specifically requires them.
 
+Treat handoff `representation_candidates` as prompts for judgment, not a prescribed chart list. They flag evidence shapes that may benefit from visualization even when no figure exists yet. Select prose, equation, table, or figure according to the claim. Handoff limitations contain claim limits, P1 concerns, and model applicability/assumption/known-limit information; do not reinterpret model scope itself as a limitation.
+
 ## Claim-led sequence
 
 1. select the validated claims that answer the official questions;

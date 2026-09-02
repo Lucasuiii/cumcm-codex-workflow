@@ -77,8 +77,8 @@ The paper handoff contains:
 
 - problem and model summaries;
 - verified results and selected claims;
-- limitations;
-- a draft figure/table representation plan;
+- claim limitations, unresolved/accepted P1 concerns, and model applicability, assumptions, and known limitations (model `scope` is not treated as a limitation);
+- proactive `representation_candidates` for trends, multi-group comparisons, distributions, sensitivity, model performance, and spatial/network/clustering structure; the fresh paper task chooses prose, equation, table, or figure;
 - identified official-format files.
 
 A new task reads the handoff first. If a canonical upstream artifact changes, the handoff becomes stale and must be rebuilt.
@@ -94,7 +94,7 @@ Paper task: read validation-paper and start from verified claims and representat
 
 ## 5. Independent validation
 
-The first review is full and context-separated. The package binds both copied materials and live upstream artifacts with digests. The user records different originating/reviewer task references. Same-model fresh-context review remains correlated; task metadata improves evidence but cannot prove human or model independence cryptographically.
+The first review is full and context-separated. By default, the package copies only canonical evidence: official inputs, problem/model contracts, `RESULTS_INDEX.json`, successful official runs cited by formal results, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Failed/exploratory runs, stdout/stderr, full logs, and debug history are excluded from both the package and its package/upstream freshness digest. The user records different originating/reviewer task references. Same-model fresh-context review remains correlated; task metadata improves evidence but cannot prove human or model independence cryptographically.
 
 Verdicts are:
 
@@ -103,7 +103,7 @@ Verdicts are:
 - `revision_required`
 - `inconclusive`
 
-Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of every prior open P0. New P1/P2 findings remain non-blocking; a genuinely new evidenced P0 may still block.
+Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of every prior open P0 and embeds a self-contained `TARGETED_FINDINGS.json` containing only finding ID, category, location, evidence, and recommendation—not the full prior review. New P1/P2 findings remain non-blocking; a genuinely new evidenced P0 may still block.
 
 ## 6. MATLAB and Python
 
@@ -115,7 +115,9 @@ New projects default to:
 
 MATLAB preference is a tie-break, not a mandate. Selection considers numerical linear algebra, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV processing, machine learning, toolboxes/packages, existing code, complexity, and runtime stability.
 
-Once selected, only that backend is officially implemented and run. If it cannot execute reliably, record the reason and switch to fallback. Python/MATLAB parity is created only when explicitly requested.
+MATLAB executable detection checks, in order: explicit project `implementation.matlab_executable`, `matlab` on PATH, then macOS `/Applications/MATLAB_R*.app/bin/matlab` (newer releases first). An unavailable preferred/selected backend may fall back with a recorded reason; an unavailable task `required_backend` raises an error and never silently switches.
+
+Once selected, only that backend is officially implemented and run. Python/MATLAB parity is created only when explicitly requested.
 
 Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs/outputs, assertions, and `official_run: true`. Formal results may reference only a successful official run.
 

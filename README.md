@@ -77,8 +77,8 @@ paper handoff 包含：
 
 - problem/model summary；
 - verified results 与 selected claims；
-- limitations；
-- figure/table 的初步表达计划；
+- claim limitations、未解决/已接受的 P1 concern，以及模型适用条件、假设和已知局限（model `scope` 不会被误当成 limitation）；
+- 主动识别趋势、多组比较、分布、敏感性、模型性能、空间/网络/聚类结构的 `representation_candidates`，由 fresh paper task 决定用 prose、equation、table 或 figure；
 - 已识别的官方格式文件。
 
 新 task 先读 handoff。任一 canonical 上游产物变化后，handoff 会 stale，必须刷新。
@@ -94,7 +94,7 @@ Paper task：只读 validation-paper handoff，从 verified claims 开始组织�
 
 ## 5. Independent Validation
 
-第一次 review 是 full 且 context-separated。复核包同时绑定复制材料和当前上游产物。用户记录不同的 originating/reviewer task ref。同模型 fresh-context 仍然相关；task metadata 能增强证据，但不能从密码学上证明 reviewer 真正独立。
+第一次 review 是 full 且 context-separated。复核包默认只复制 canonical evidence：官方输入、problem/model contracts、`RESULTS_INDEX.json`、正式结果引用的成功 official run、对应 source snapshot、formal inputs、claim-bearing outputs 和复核说明。失败/探索 run、stdout/stderr、完整 logs 与 debug history 不进入包，也不进入 package/upstream freshness digest。用户记录不同的 originating/reviewer task ref。同模型 fresh-context 仍然相关；task metadata 能增强证据，但不能从密码学上证明 reviewer 真正独立。
 
 Verdict 支持：
 
@@ -103,7 +103,7 @@ Verdict 支持：
 - `revision_required`
 - `inconclusive`
 
-只有开放 P0 才允许 `revision_required`。full review 出现 P0 后，下一次打包默认进行 targeted re-review，覆盖全部原 P0。新增 P1/P2 不阻断；只有有明确证据的新 P0 才能新增 blocking。
+只有开放 P0 才允许 `revision_required`。full review 出现 P0 后，下一次打包默认进行 targeted re-review，覆盖全部原 P0，并在包内生成自包含的 `TARGETED_FINDINGS.json`（只保留 finding ID、category、location、evidence 和 recommendation，不复制完整旧 review）。新增 P1/P2 不阻断；只有有明确证据的新 P0 才能新增 blocking。
 
 ## 6. MATLAB 与 Python
 
@@ -115,7 +115,9 @@ Verdict 支持：
 
 MATLAB preference 只是同等条件下的 tie-break，不是强制。选择综合考虑数值线性代数、优化、ODE/PDE、信号处理、数据清洗、Excel/CSV、机器学习、toolbox/package、已有代码、实现复杂度和运行稳定性。
 
-一旦选定，只正式实现并运行这一种后端。若无法可靠运行，记录原因并切换 fallback。只有用户明确要求时才建立 Python/MATLAB parity。
+MATLAB executable 的检测顺序是：项目 `implementation.matlab_executable` 显式配置、PATH 中的 `matlab`、macOS `/Applications/MATLAB_R*.app/bin/matlab`（优先较新版本）。普通 preferred/selection 后端不可用时可以记录原因并切换 fallback；任务声明的 `required_backend` 不可用时直接报错，不会静默切换。
+
+一旦选定，只正式实现并运行这一种后端。只有用户明确要求时才建立 Python/MATLAB parity。
 
 每个 official run 记录 selected language、rationale、runtime、dependencies/toolboxes、entry point、source-tree snapshot、command、logs、输入输出、assertions 和 `official_run: true`。正式结果只能引用成功 official run。
 

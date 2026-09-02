@@ -13,4 +13,4 @@
 
 P0 仅用于真实错误、答非所问、关键 claim 无证据、代码/结果不一致或严重 provenance 问题；P1 是模型、假设、baseline、验证或敏感性方面的 concern；P2 是表达、图表或额外实验建议。只有开放 P0 可以给出 `revision_required`。
 
-若本包是 targeted re-review，优先检查列出的既有 P0 是否解决。可以报告新 P1/P2，但不要把它们升级成阻断项；只有新发现且有明确证据的 P0 才能新增阻断。
+若本包是 targeted re-review，先读取包根目录的 `TARGETED_FINDINGS.json`。它已包含目标 P0 的 finding ID、category、location、evidence 和 recommendation；无需访问完整旧 review。优先检查这些既有 P0 是否解决。可以报告新 P1/P2，但不要把它们升级成阻断项；只有新发现且有明确证据的 P0 才能新增阻断。

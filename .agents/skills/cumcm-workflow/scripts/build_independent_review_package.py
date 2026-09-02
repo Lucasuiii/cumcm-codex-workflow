@@ -16,6 +16,7 @@ from provenance import digest_records, sha256_file
 
 
 PACKAGE_REL = Path("validation/independent-review-package")
+TARGETED_FINDINGS_NAME = "TARGETED_FINDINGS.json"
 
 
 def utc_now() -> str:
@@ -43,14 +44,54 @@ def copy_material(project: Path, staging: Path, rel: str, role: str, records: li
     seen.add(rel)
 
 
+def targeted_findings_from(prior: dict[str, Any], target_ids: list[str]) -> list[dict[str, str]]:
+    available = {
+        str(item.get("finding_id")): item
+        for item in prior.get("findings", [])
+        if isinstance(item, dict) and item.get("severity") == "P0" and item.get("status") == "open"
+    }
+    missing = sorted(set(target_ids) - set(available))
+    if missing:
+        raise ValueError(f"targeted findings are not open P0 entries in the previous review: {', '.join(missing)}")
+    fields = ("finding_id", "category", "location", "evidence", "recommendation")
+    return [{field: str(available[finding_id].get(field, "")) for field in fields} for finding_id in target_ids]
+
+
+def selected_official_runs(project: Path, results: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    referenced = {
+        str(item.get("run_id"))
+        for item in results.get("results", [])
+        if isinstance(item, dict) and item.get("run_id")
+    }
+    manifests: dict[str, tuple[str, dict[str, Any]]] = {}
+    for manifest_path in sorted((project / "runs").glob("*/RUN_MANIFEST.json")):
+        rel = manifest_path.relative_to(project).as_posix()
+        run = require_object(manifest_path)
+        run_id = str(run.get("run_id", ""))
+        if run_id:
+            manifests[run_id] = (rel, run)
+    selected: list[tuple[str, dict[str, Any]]] = []
+    for run_id in sorted(referenced):
+        candidate = manifests.get(run_id)
+        if candidate is None:
+            raise ValueError(f"formal result references a missing run: {run_id}")
+        rel, run = candidate
+        if run.get("official_run") is not True or run.get("status") != "completed" or run.get("exit_code") != 0:
+            raise ValueError(f"formal result references a run that is not a successful official run: {run_id}")
+        selected.append((rel, run))
+    return selected
+
+
 def build(project: Path, *, review_mode: str = "auto", previous_review_path: str | None = None, target_finding_ids: list[str] | None = None, refresh: bool = False) -> Path:
     project = project.resolve()
     destination = project / PACKAGE_REL
     target_finding_ids = sorted(set(target_finding_ids or []))
     current_review = project / "validation" / "INDEPENDENT_REVIEW_RESULT.json"
+    prior_review: dict[str, Any] | None = None
     if review_mode == "auto" and current_review.is_file():
         prior = require_object(current_review)
         if prior.get("verdict") == "revision_required":
+            prior_review = prior
             review_mode = "targeted"
             previous_review_path = previous_review_path or "validation/INDEPENDENT_REVIEW_RESULT.json"
             if not target_finding_ids:
@@ -70,7 +111,8 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
     if review_mode == "targeted" and (not previous_review_path or not target_finding_ids):
         raise ValueError("targeted review requires previous_review_path and target_finding_ids")
     if review_mode == "targeted" and previous_review_path == "validation/INDEPENDENT_REVIEW_RESULT.json" and current_review.is_file():
-        prior = require_object(current_review)
+        prior = prior_review or require_object(current_review)
+        prior_review = prior
         history_dir = project / "validation" / "review-history"
         history_dir.mkdir(parents=True, exist_ok=True)
         safe_id = "".join(char if char.isalnum() or char in "-_" else "_" for char in str(prior.get("review_id", "previous-review")))
@@ -80,6 +122,12 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
         if not archived_review.exists():
             shutil.copy2(current_review, archived_review)
         previous_review_path = archived_review.relative_to(project).as_posix()
+    if review_mode == "targeted" and prior_review is None:
+        previous = safe_project_path(project, previous_review_path)
+        if previous is None or not previous.is_file():
+            raise ValueError(f"targeted review cannot read previous review: {previous_review_path}")
+        prior_review = require_object(previous)
+    targeted_findings = targeted_findings_from(prior_review, target_finding_ids) if prior_review is not None else []
 
     state = require_object(project / ".cumcm/state.json")
     if state.get("workflow_version") != WORKFLOW_VERSION:
@@ -89,7 +137,7 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
         raise ValueError("workflow state has no project_id")
 
     sources = require_object(project / "problem/SOURCE_MANIFEST.json")
-    capabilities = require_object(project / "analysis/TASK_CAPABILITIES.json")
+    results = require_object(project / "results/RESULTS_INDEX.json")
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     validation_dir = project / "validation"
@@ -126,27 +174,35 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             if isinstance(source, dict) and source.get("origin") in {"official", "organizer_attachment"}:
                 copy_material(project, staging, str(source.get("path")), "official_input", records, seen)
 
-        for capability in capabilities.get("capabilities", []):
-            if not isinstance(capability, dict):
-                continue
-            for entry in capability.get("code_entry_points", []):
-                rel = str(entry).split(":", 1)[0]
-                copy_material(project, staging, rel, "computation_source", records, seen)
-
-        for manifest_path in sorted((project / "runs").glob("*/RUN_MANIFEST.json")):
-            rel_manifest = manifest_path.relative_to(project).as_posix()
+        for rel_manifest, run in selected_official_runs(project, results):
             copy_material(project, staging, rel_manifest, "run_record", records, seen)
-            run = require_object(manifest_path)
-            for field in ("stdout_path", "stderr_path"):
-                if run.get(field):
-                    log_path = safe_project_path(project, run[field])
-                    if log_path is not None and log_path.is_file() and log_path.stat().st_size > 0:
-                        copy_material(project, staging, str(run[field]), "run_record", records, seen)
-            for entry in [*run.get("inputs", []), *run.get("outputs", [])]:
-                if not isinstance(entry, dict) or not entry.get("path"):
-                    continue
-                role = "executed_output" if entry in run.get("outputs", []) else "run_record"
-                copy_material(project, staging, str(entry["path"]), role, records, seen)
+            implementation = run.get("implementation") if isinstance(run.get("implementation"), dict) else {}
+            snapshot = implementation.get("source_snapshot") if isinstance(implementation.get("source_snapshot"), dict) else {}
+            for rel in snapshot.get("files", []):
+                copy_material(project, staging, str(rel), "computation_source", records, seen)
+            for entry in run.get("inputs", []):
+                if isinstance(entry, dict) and entry.get("evidence_role") == "formal_input":
+                    copy_material(project, staging, str(entry.get("path")), "run_record", records, seen)
+            for entry in run.get("outputs", []):
+                if isinstance(entry, dict) and entry.get("evidence_role") == "claim_bearing_output":
+                    copy_material(project, staging, str(entry.get("path")), "executed_output", records, seen)
+
+        if review_mode == "targeted":
+            targeted_payload = {
+                "review_mode": "targeted",
+                "source_review_id": prior_review.get("review_id") if prior_review else None,
+                "findings": targeted_findings,
+            }
+            targeted_path = staging / TARGETED_FINDINGS_NAME
+            targeted_path.write_text(json.dumps(targeted_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            records.append(
+                {
+                    "path": (PACKAGE_REL / TARGETED_FINDINGS_NAME).as_posix(),
+                    "role": "review_instruction",
+                    "size": targeted_path.stat().st_size,
+                    "sha256": sha256_file(targeted_path),
+                }
+            )
 
         result_template = {
             "schema_version": WORKFLOW_VERSION,

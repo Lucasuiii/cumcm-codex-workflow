@@ -91,11 +91,104 @@ def add_artifact(root: Path, records: list[dict[str, str]], rel: str, role: str)
         records.append({"path": rel, "role": role, "sha256": sha256_file(path)})
 
 
+def values(value: Any) -> list[Any]:
+    if value is None or value == "" or value == []:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+REPRESENTATION_PATTERNS = {
+    "trend": ("trend", "time series", "trajectory", "curve", "growth", "趋势", "时间序列", "轨迹", "曲线", "增长", "变化率"),
+    "multi_group_comparison": ("comparison", "compare", "versus", "group", "scenario", "policy", "对比", "比较", "组别", "方案", "策略"),
+    "distribution": ("distribution", "density", "quantile", "histogram", "variance", "分布", "密度", "分位数", "直方图", "方差"),
+    "sensitivity": ("sensitivity", "perturbation", "stress", "robust", "敏感性", "扰动", "压力测试", "鲁棒"),
+    "model_performance": ("performance", "accuracy", "error", "residual", "loss", "fit", "性能", "准确率", "误差", "残差", "损失", "拟合"),
+    "spatial_network_cluster": ("spatial", "geographic", "network", "graph", "cluster", "空间", "地理", "网络", "图结构", "聚类"),
+}
+
+
+def representation_candidates(claims: dict[str, Any], results: dict[str, Any], supported_states: set[str]) -> list[dict[str, Any]]:
+    result_by_id = {
+        str(item.get("result_id")): item
+        for item in results.get("results", [])
+        if isinstance(item, dict)
+    }
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for claim in claims.get("claims", []):
+        if not isinstance(claim, dict) or claim.get("evidence_state") not in supported_states:
+            continue
+        evidence = claim.get("evidence") if isinstance(claim.get("evidence"), dict) else {}
+        result_ids = [str(value) for value in evidence.get("result_ids", [])]
+        linked = [result_by_id[result_id] for result_id in result_ids if result_id in result_by_id]
+        text_parts = [claim.get("text"), claim.get("claim_type")]
+        for result in linked:
+            text_parts.extend((result.get("name"), result.get("scope"), result.get("validation_checks")))
+        searchable = json.dumps(text_parts, ensure_ascii=False).casefold()
+        kinds = {
+            kind for kind, patterns in REPRESENTATION_PATTERNS.items()
+            if any(pattern.casefold() in searchable for pattern in patterns)
+        }
+        if len(result_ids) > 1 or any(isinstance(item.get("value"), (list, dict)) and len(item.get("value")) > 1 for item in linked):
+            kinds.add("multi_group_comparison")
+        for kind in sorted(kinds):
+            key = (str(claim.get("claim_id")), kind)
+            if key in seen:
+                continue
+            seen.add(key)
+            media = ["table", "figure"] if kind == "multi_group_comparison" else ["figure", "table"]
+            candidates.append(
+                {
+                    "candidate_id": f"{claim.get('claim_id')}:{kind}",
+                    "kind": kind,
+                    "claim_ids": [claim.get("claim_id")],
+                    "result_ids": result_ids,
+                    "suggested_media": media,
+                    "reason": f"verified evidence indicates {kind.replace('_', ' ')} structure",
+                }
+            )
+    return candidates
+
+
+def paper_limitations(facts: dict[str, Any], model: dict[str, Any], claims: dict[str, Any], review: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    claim_items: list[dict[str, Any]] = []
+    for claim in claims.get("claims", []):
+        if not isinstance(claim, dict):
+            continue
+        for item in values(claim.get("limitations")):
+            claim_items.append({"claim_id": claim.get("claim_id"), "value": item})
+
+    concerns = [
+        {
+            key: item.get(key)
+            for key in ("finding_id", "status", "category", "location", "evidence", "recommendation")
+        }
+        for item in review.get("findings", [])
+        if isinstance(item, dict) and item.get("severity") == "P1" and item.get("status") in {"open", "accepted_concern"}
+    ]
+
+    applicability: list[dict[str, Any]] = []
+    for component in model.get("components", []):
+        if not isinstance(component, dict):
+            continue
+        for field in ("applicability", "applicability_conditions", "assumptions", "known_limitations", "limitations"):
+            for item in values(component.get(field)):
+                applicability.append({"model_id": component.get("model_id"), "kind": field, "value": item})
+    for assumption in facts.get("assumptions", []):
+        applicability.append({"model_id": None, "kind": "problem_assumption", "value": assumption})
+    return {
+        "claim_limitations": claim_items,
+        "review_concerns": concerns,
+        "model_applicability": applicability,
+    }
+
+
 def paper_payload(root: Path) -> dict[str, Any]:
     facts = read_object(root, "analysis/PROBLEM_FACTS.json")
     model = read_object(root, "model/MODEL_CONTRACT.json")
     results = read_object(root, "results/RESULTS_INDEX.json")
     claims = read_object(root, "validation/CLAIM_LEDGER.json")
+    review = read_object(root, "validation/INDEPENDENT_REVIEW_RESULT.json")
     supported_states = {"supported_not_reproduced", "reproduced", "partially_supported"}
     verified_results = [
         {key: item.get(key) for key in ("result_id", "name", "value", "unit", "scope", "evidence_state")}
@@ -107,16 +200,6 @@ def paper_payload(root: Path) -> dict[str, Any]:
         for item in claims.get("claims", [])
         if isinstance(item, dict) and item.get("evidence_state") in supported_states
     ]
-    representation_plan = []
-    for item in claims.get("claims", []):
-        if not isinstance(item, dict) or item.get("evidence_state") not in supported_states:
-            continue
-        evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
-        result_count = len(evidence.get("result_ids", []))
-        medium = "figure" if evidence.get("figure_ids") else "table" if result_count > 1 else "prose"
-        representation_plan.append(
-            {"claim_id": item.get("claim_id"), "medium": medium, "reason": "draft choice from verified evidence shape"}
-        )
     official_format_files = [source.get("path") for source in official_sources(root) if is_format_source(source)]
     return {
         "problem_summary": [
@@ -129,8 +212,8 @@ def paper_payload(root: Path) -> dict[str, Any]:
         ],
         "verified_results": verified_results,
         "claims": selected_claims,
-        "limitations": sorted({str(item.get("scope")) for item in model.get("components", []) if isinstance(item, dict) and item.get("scope")}),
-        "figure_table_plan": representation_plan,
+        "limitations": paper_limitations(facts, model, claims, review),
+        "representation_candidates": representation_candidates(claims, results, supported_states),
         "official_format_files": official_format_files,
     }
 

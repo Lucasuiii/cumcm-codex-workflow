@@ -19,7 +19,7 @@ Review this freshness-bound package without consulting the originating conversat
 
 ## Review order
 
-1. Read `REVIEW_REQUEST.md` and `materials/problem/SOURCE_MANIFEST.json`.
+1. Read `REVIEW_REQUEST.md` and `materials/problem/SOURCE_MANIFEST.json`. In targeted mode, also read package-root `TARGETED_FINDINGS.json`; it is the self-contained prior-P0 brief, so do not request the complete prior review.
 2. Reconstruct each subproblem from the supplied official files and `PROBLEM_FACTS.json`.
 3. Compare the official request with the model objective, variables, constraints, assumptions, and cross-question dependencies.
 4. Inspect computation entry points, run manifests, executed outputs, and result locators.
@@ -32,7 +32,7 @@ Review this freshness-bound package without consulting the originating conversat
    - cross-question contradiction;
    - code and mathematical formulation disagree;
    - numerical output violates units, bounds, conservation, or official constraints.
-6. For targeted mode, first resolve every targeted prior P0. Do not repeat a full review unless the target change has global impact.
+6. For targeted mode, resolve every entry in `TARGETED_FINDINGS.json` first. Do not repeat a full review unless the target change has global impact or current evidence reveals a new, well-supported P0.
 7. Write the raw review and structured result using the supplied template.
 
 ## Verdict

@@ -1,34 +1,27 @@
-# Stage 5: Validation
+# Validation responsibility
 
-## Entry gate: user-routed independent review
+## First review: full and context-separated
 
-Validation may not begin immediately after computation. First run `scripts/build_independent_review_package.py --project <project>`. It creates `validation/independent-review-package/` containing official inputs, problem and model contracts, computation entry points, run records, executed outputs, a review request, and a dedicated reviewer `SKILL.md`. The package withholds the originating conclusions as far as practical.
+Build the current computation handoff, then run:
 
-Stop after packaging. Show the package to the user and let the user choose a human or model in a separate task. Record the choice in `REVIEW_PACKAGE_MANIFEST.json`; never default to the current conversation. Import the raw review as `validation/INDEPENDENT_REVIEW_RAW.md` and the structured result as `validation/INDEPENDENT_REVIEW_RESULT.json`.
+```bash
+python3 scripts/build_independent_review_package.py --project <project>
+```
 
-A same-context review is `correlated_self_review` and cannot pass. A same-model fresh task may pass only as `context_separated_model_correlated`; preserve that limitation. A different model or human can be marked `independent`, but the result is still a review, not mathematical proof. A `revision_requested` verdict returns to the earliest affected stage. An inconclusive review blocks validation until the missing user-supplied material or evidence is resolved.
+The package binds official inputs, model contracts, selected source, official runs, and executed outputs with file hashes, an upstream digest, and a package digest. Stop and let the user route it to a separate task or human. Record both originating and reviewer task references; they must differ. Same-model fresh-context review remains correlated. Task references and user confirmation improve context-separation evidence but cannot cryptographically prove reviewer independence.
 
-## Required outputs
+## Findings and verdicts
 
-- `validation/VALIDATION_REPORT.md`
-- `validation/CLAIM_LEDGER.json`
-- `validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json`
-- `validation/INDEPENDENT_REVIEW_RAW.md`
-- `validation/INDEPENDENT_REVIEW_RESULT.json`
-- `.cumcm/validation-report.json`
-- `validation/SENSITIVITY_REPORT.md` when sensitivity is relevant
+- `P0`: actual data/computation error, task mismatch, unsupported key claim, code/model/result disagreement, or serious provenance failure.
+- `P1`: concern about model choice, assumptions, baseline, validation, sensitivity, or generalization.
+- `P2`: optional presentation or additional experiment suggestion.
 
-Recompute important checks from saved outputs rather than trusting in-process variables or solver success flags. Test units, bounds, conservation, feasibility, baseline comparisons, and cross-subproblem consistency.
+Verdicts are `accepted`, `accepted_with_concerns`, `revision_required`, and `inconclusive`. Only an open P0 permits `revision_required`. Open P1/P2 items remain visible as warnings or suggestions and do not block paper work.
 
-For every proposed paper claim, record:
+After a full review returns open P0 findings, rerunning the package builder in auto mode defaults to a targeted re-review. It archives the prior review/package and targets every prior open P0. Do not turn unrelated newly noticed P1/P2 items into new blockers. A genuinely new P0 may still require revision.
 
-- the exact claim;
-- its scope and assumptions;
-- supporting fact, model, run, result, and figure IDs;
-- independent or structural checks;
-- known confounds and limitations;
-- evidence state: `not_checked`, `missing_evidence`, `supported_not_reproduced`, `reproduced`, `partially_supported`, `contradicted`, `ambiguous`, or `not_applicable`.
+## Claims
 
-Claims of global optimality, unbiasedness, equivalence, causality, or robustness require a claim-specific certificate declaration. `reproduced` additionally requires an isolated rerun and a claim-specific comparison record; stored code or a successful original run is insufficient.
+Create `CLAIM_LEDGER.json` from the reviewed evidence. Each paper-bearing claim records its exact text, scope, evidence IDs, evidence state, and limitations. Strong claims—global optimality, equivalence, causality, robustness, significance, or reproducibility—still need claim-specific support. `reproduced` requires an isolated rerun and comparison; an original successful run is only `supported_not_reproduced` unless stronger evidence exists.
 
-Stop for approval of claims that may enter the abstract or conclusion.
+Before paper writing, build `validation-paper`. Its compact payload contains the problem summary, model summary, verified results, selected claims, limitations, a draft figure/table representation plan, and identified official-format files. A fresh paper task reads this handoff first and does not scan full run/debug history.

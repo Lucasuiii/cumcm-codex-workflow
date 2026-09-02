@@ -3,7 +3,7 @@
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/claim-ledger.schema.json",
   "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
   "type": "object",
-  "required": ["independent_review", "claims"],
+  "required": ["claims"],
   "properties": {
     "artifact_type": {"const": "claim_ledger"},
     "independent_review": {"$ref": "common.schema.json#/$defs/review"},
@@ -12,12 +12,13 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["claim_id", "text", "claim_type", "scope", "paper_location", "evidence", "evidence_state", "certificates", "review"],
+        "required": ["claim_id", "text", "claim_type", "scope", "paper_location", "evidence", "evidence_state", "certificates"],
         "properties": {
           "claim_id": {"type": "string", "minLength": 1},
           "text": {"type": "string", "minLength": 1},
           "claim_type": {"type": "string", "minLength": 1},
           "scope": {"type": "string", "minLength": 1},
+          "limitations": {"type": ["string", "array", "null"]},
           "paper_location": {"type": ["string", "null"]},
           "evidence": {
             "type": "object",

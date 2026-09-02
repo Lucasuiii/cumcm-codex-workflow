@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_workflow_core import build_valid_project, envelope, review, write_json  # noqa: E402
 from init_latex_paper import initialize as initialize_latex  # noqa: E402
-from workflow_checks import check_project  # noqa: E402
+from build_handoff import build as build_handoff  # noqa: E402
+from provenance import digest_records, tree_snapshot  # noqa: E402
+from workflow_checks import check_project, sha256, stage_scope_paths  # noqa: E402
 
 
 def digest_file(path: Path) -> str:
@@ -24,32 +26,24 @@ def digest_file(path: Path) -> str:
 
 
 def record_decisions(root: Path, stages: tuple[str, ...]) -> None:
+    events = []
     for index, stage in enumerate(stages, 1):
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPTS / "record_decision.py"),
-                "--project",
-                str(root),
-                "--stage",
-                stage,
-                "--decision",
-                "accepted",
-                "--decision-id",
-                f"DEC-{index:03d}",
-                "--reviewer",
-                "fixture-reviewer",
-                "--task-turn-ref",
-                f"fixture-turn-{index}",
-                "--summary",
-                f"Accepted fixture stage {stage}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode:
-            raise AssertionError(completed.stdout + completed.stderr)
+        scope = [{"path": rel, "sha256": sha256(root / rel)} for rel in stage_scope_paths(root, stage)]
+        event = {
+            "decision_id": f"DEC-{index:03d}", "stage": stage, "decision": "accepted", "scope": scope,
+            "reviewer": "fixture-reviewer", "task_turn_ref": f"fixture-turn-{index}",
+            "user_visible_summary": f"Accepted fixture stage {stage}", "decided_at": "2026-08-30T12:00:00Z",
+        }
+        events.append(event)
+        snapshot = {
+            "snapshot_version": "0.5.0", "project_id": "SYNTHETIC-2024-B", "stage": stage,
+            "decision_id": event["decision_id"], "decision": "accepted", "created_at": event["decided_at"],
+            "artifacts": scope, "snapshot_digest": digest_records(scope),
+        }
+        write_json(root, f".cumcm/snapshots/{stage}.json", snapshot)
+    decision_path = root / ".cumcm" / "decisions.jsonl"
+    decision_path.parent.mkdir(parents=True, exist_ok=True)
+    decision_path.write_text("".join(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
 
 
 def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = None) -> None:
@@ -66,6 +60,15 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
     plan = envelope("paper_plan")
     plan.update(
         {
+            "claim_selection": [
+                {"claim_id": "CLM-Q1-001", "subproblem_id": "Q1", "purpose": "answer Q1 directly"}
+            ],
+            "representation_plan": [
+                {"item_id": "REP-Q1-001", "claim_ids": ["CLM-Q1-001"], "result_ids": ["RES-Q1-001"], "medium": "figure", "purpose": "show the restricted-policy comparison", "artifact_id": "FIG-Q1-001"}
+            ],
+            "paper_structure": [
+                {"section_id": "SEC-Q1", "title": "Q1 solution", "purpose": "complete Q1 reasoning", "subproblem_ids": ["Q1"], "claim_ids": ["CLM-Q1-001"]}
+            ],
             "reference_reviews": [
                 {
                     "reference_id": "REF-001",
@@ -150,6 +153,7 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
                 "reviewed_at": "2026-08-30T12:00:00Z",
                 "reviewer_kind": "external_reviewer",
                 "artifact": paper_artifact,
+                "summary": "Content is coherent and evidence-bounded.",
                 "abstract_synthesis": dict(dimension),
                 "conclusion_directness": dict(dimension),
                 "internal_metadata_separation": dict(dimension),
@@ -157,6 +161,8 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
                 "questions": [
                     {
                         "subproblem_id": "Q1",
+                        "status": "pass",
+                        "notes": "Q1 directly answers the task and explains the result.",
                         "argument_chain": dict(dimension),
                         "mechanism_explanation": dict(dimension),
                         "derivation": dict(dimension),
@@ -228,6 +234,11 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
     receipt = envelope("compile_receipt")
     receipt.update(
         {
+            "source_snapshot": tree_snapshot(
+                root,
+                json.loads((root / "paper" / "LATEX_TEMPLATE_MANIFEST.json").read_text(encoding="utf-8"))["required_files"],
+                entrypoint="paper/main.tex",
+            ),
             "selected_attempt_id": "COMPILE-001",
             "attempts": [
                 {
@@ -261,11 +272,15 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
 
     state_path = root / ".cumcm" / "state.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["mode"] = "finalizing"
     state["current_stage"] = "delivery"
     state["stages"] = {stage: "passed" for stage in (
         "intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"
     )}
     write_json(root, ".cumcm/state.json", state)
+
+    for transition in ("modeling-computation", "computation-validation", "validation-paper", "paper-delivery"):
+        build_handoff(root, transition)
 
     record_decisions(
         root,
@@ -291,10 +306,10 @@ class V04PaperQualityTests(unittest.TestCase):
             build_valid_v04_project(root)
             findings, summary = check_project(root, "delivery", "strict")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
-            self.assertEqual(summary["workflow_version"], "0.4.0")
+            self.assertEqual(summary["workflow_version"], "0.5.0")
             self.assertEqual(summary["gate_status"], "passed")
 
-    def test_missing_argument_layer_blocks(self):
+    def test_legacy_argument_layers_are_not_a_hard_gate(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_v04_project(root)
@@ -302,10 +317,14 @@ class V04PaperQualityTests(unittest.TestCase):
             data = json.loads(path.read_text(encoding="utf-8"))
             del data["question_argument_chains"][0]["layers"]["derivation"]
             write_json(root, "paper/PAPER_PLAN.json", data)
+            state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
+            state["mode"] = "working"
+            write_json(root, ".cumcm/state.json", state)
             findings, _ = check_project(root, "paper", "strict")
-            self.assertIn("PPLAN-E008", {item.rule_id for item in findings})
+            self.assertNotIn("PPLAN-E008", {item.rule_id for item in findings})
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
-    def test_not_applicable_layer_requires_rationale(self):
+    def test_legacy_not_applicable_layer_does_not_block(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_v04_project(root)
@@ -314,40 +333,39 @@ class V04PaperQualityTests(unittest.TestCase):
             layer = data["question_argument_chains"][0]["layers"]["derivation"]
             layer.update({"status": "not_applicable", "rationale": None, "evidence_ids": []})
             write_json(root, "paper/PAPER_PLAN.json", data)
+            state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
+            state["mode"] = "working"
+            write_json(root, ".cumcm/state.json", state)
             findings, _ = check_project(root, "paper", "strict")
-            self.assertIn("PPLAN-E010", {item.rule_id for item in findings})
+            self.assertNotIn("PPLAN-E010", {item.rule_id for item in findings})
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
-    def test_required_planned_figure_must_exist(self):
+    def test_no_planned_visual_is_warning_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
-            data["figure_plan"].append(
-                {
-                    "figure_id": "FIG-Q1-999",
-                    "kind": "quantitative",
-                    "purpose": "Required sensitivity view.",
-                    "claim_ids": ["CLM-Q1-001"],
-                    "result_ids": ["RES-Q1-001"],
-                    "required": True,
-                    "decision_support": "Tests decision sensitivity.",
-                }
-            )
+            data["representation_plan"] = []
             write_json(root, "paper/PAPER_PLAN.json", data)
+            state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
+            state["mode"] = "working"
+            write_json(root, ".cumcm/state.json", state)
             findings, _ = check_project(root, "paper", "strict")
-            self.assertIn("PPLAN-E012", {item.rule_id for item in findings})
+            warning = next(item for item in findings if item.rule_id == "PPLAN-W001")
+            self.assertEqual(warning.severity, "warning")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
-    def test_quantitative_figure_plan_needs_claim_and_result_role(self):
+    def test_representation_plan_requires_known_results(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_v04_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
-            data["figure_plan"][0]["claim_ids"] = []
+            data["representation_plan"][0]["result_ids"] = ["RES-UNKNOWN"]
             write_json(root, "paper/PAPER_PLAN.json", data)
             findings, _ = check_project(root, "paper", "strict")
-            self.assertIn("PPLAN-E015", {item.rule_id for item in findings})
+            self.assertIn("PPLAN-E014", {item.rule_id for item in findings})
 
     def test_review_only_failure_is_preflight_zero_and_enforce_nonzero(self):
         with tempfile.TemporaryDirectory() as temp:

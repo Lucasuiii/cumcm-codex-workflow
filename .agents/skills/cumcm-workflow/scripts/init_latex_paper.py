@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Initialize a modular v0.4 CUMCM LaTeX paper without overwriting existing work."""
+"""Initialize a modular v0.5 CUMCM LaTeX paper without overwriting existing work."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-WORKFLOW_VERSION = "0.4.0"
+WORKFLOW_VERSION = "0.5.0"
 TEMPLATE_ID = "cumcm-contest-ctex"
 
 
@@ -63,7 +64,7 @@ def validate_inputs(project: Path) -> tuple[dict[str, Any], dict[str, Any], dict
     facts = read_object(project / "analysis" / "PROBLEM_FACTS.json")
     plan = read_object(project / "paper" / "PAPER_PLAN.json")
     if state.get("workflow_version") != WORKFLOW_VERSION or state.get("schema_version") != WORKFLOW_VERSION:
-        raise ValueError("LaTeX initialization requires an exact v0.4 workflow state")
+        raise ValueError("LaTeX initialization requires an exact v0.5 workflow state")
     project_ids = {state.get("project_id"), facts.get("project_id"), plan.get("project_id")}
     if None in project_ids or len(project_ids) != 1:
         raise ValueError("state, problem facts, and paper plan must share one project_id")
@@ -76,13 +77,37 @@ def validate_inputs(project: Path) -> tuple[dict[str, Any], dict[str, Any], dict
         if isinstance(item, dict) and (item.get("subproblem_id") or item.get("id"))
     }
     plan_ids = {
-        str(item.get("subproblem_id"))
-        for item in plan.get("question_argument_chains", [])
-        if isinstance(item, dict) and item.get("subproblem_id")
+        str(subproblem_id)
+        for item in plan.get("paper_structure", [])
+        if isinstance(item, dict)
+        for subproblem_id in item.get("subproblem_ids", [])
+        if str(subproblem_id)
     }
     if fact_ids != plan_ids:
-        raise ValueError("paper plan argument chains must exactly cover the problem-fact subproblems")
+        raise ValueError("paper structure must exactly cover the problem-fact subproblems")
     return state, facts, plan
+
+
+def commit_staged_tree(staging: Path, paper_dir: Path) -> None:
+    """Publish generated top-level entries with rollback on a partial commit."""
+    sources = sorted(staging.iterdir(), key=lambda path: path.name)
+    conflicts = [paper_dir / source.name for source in sources if (paper_dir / source.name).exists()]
+    if conflicts:
+        raise ValueError("refusing to overwrite paper files during commit: " + ", ".join(path.name for path in conflicts))
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    created: list[Path] = []
+    try:
+        for source in sources:
+            destination = paper_dir / source.name
+            os.replace(source, destination)
+            created.append(destination)
+    except OSError:
+        for destination in reversed(created):
+            if destination.is_dir():
+                shutil.rmtree(destination)
+            elif destination.exists():
+                destination.unlink()
+        raise
 
 
 def initialize(project: Path, title: str, competition_year: int, keywords: str) -> Path:
@@ -91,7 +116,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
     template_root = skill_root / "assets" / "latex-template" / "generic-ctex"
     template_meta = read_object(template_root / "template.json")
     paper_dir = project / "paper"
-    protected_targets = [paper_dir / "main.tex", paper_dir / "metadata.tex", paper_dir / "macros.tex", paper_dir / "sections", paper_dir / "LATEX_TEMPLATE_MANIFEST.json"]
+    protected_targets = [paper_dir / "main.tex", paper_dir / "metadata.tex", paper_dir / "macros.tex", paper_dir / "references.bib", paper_dir / "sections", paper_dir / "LATEX_TEMPLATE_MANIFEST.json"]
     conflicts = [path for path in protected_targets if path.exists()]
     if conflicts:
         listed = ", ".join(path.relative_to(project).as_posix() for path in conflicts)
@@ -172,19 +197,13 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
         }
         (staging / "LATEX_TEMPLATE_MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-        paper_dir.mkdir(parents=True, exist_ok=True)
-        for source in staging.iterdir():
-            destination = paper_dir / source.name
-            if source.is_dir():
-                shutil.copytree(source, destination)
-            else:
-                shutil.copy2(source, destination)
+        commit_staged_tree(staging, paper_dir)
 
     return paper_dir / "LATEX_TEMPLATE_MANIFEST.json"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.4 CUMCM project")
+    parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.5 CUMCM project")
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--title", default="全国大学生数学建模竞赛论文")
     parser.add_argument("--competition-year", type=int, default=datetime.now().year)

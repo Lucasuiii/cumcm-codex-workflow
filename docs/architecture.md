@@ -1,25 +1,26 @@
 # Architecture
 
-The project uses files as the durable workflow state.
+v0.5 stores durable state in workspace files but separates orchestration from work products.
 
 ```text
-official sources
-  -> source manifest and problem facts
-  -> task capabilities and model contract
-  -> executable code and immutable run directory
-  -> exact result index
-  -> user-routed independent review package and imported review
-  -> validation report, claim ledger, and figure manifest
-  -> paper plan, reader narrative, and claims-evidence matrix
-  -> clean paper plus sidecar traceability
-  -> content, visible-text, rendered-page, and final review
-  -> compile receipt and three-part delivery manifest
+orchestrator
+  -> modeling artifacts
+  -> modeling-computation handoff
+  -> one selected computation backend + official run
+  -> computation-validation handoff + review package
+  -> bounded validation
+  -> validation-paper handoff
+  -> fresh paper task
+  -> paper-delivery handoff
+  -> compile receipt and three-part delivery
 ```
 
-The Codex skill routes the active stage. `cumcm_check.py` validates local JSON Schemas and crosses stable IDs between artifacts. It records typed findings for structural, execution, numerical, semantic, and visual evidence. `record_decision.py` appends approvals bound to the current stage-owned contracts, so later edits invalidate the old approval without deleting its history. Decision events themselves are not hash-chained. Human review controls interpretation, model choice, claim scope, paper quality, and submission. Mathematical correctness remains an evidence question rather than a workflow-status flag.
+The top-level state machine remains seven stages for compatibility, while responsibilities are grouped into orchestrator, modeling, computation, validation, paper, and delivery. Independent review stays a validation gate; it is not another self-approved stage.
 
-Conversational Skill routing is the normal workspace entrypoint: the user supplies an official-input path, while Codex resolves the project identity and safe destination and invokes `init_project.py`. The script is the atomic execution layer. It stages a complete directory tree, copies regular official files without modifying their source, rejects symlinked or unsafe layouts, writes v0.4 state and a source manifest, records a machine-readable initialization receipt, and runs intake preflight before publishing the target directory. It deliberately stops at `awaiting_review`; later-stage facts and evidence are created only when those stages are reached.
+`working` and `finalizing` control gate intensity. Working mode preserves the hard evidence chain without requiring downstream completeness. Finalizing mode requires passed state, decisions, snapshots, handoffs, review, and exact final bindings.
 
-Version 0.4 is the only accepted contract version. The top-level seven-stage state machine stays small; independent review is an entry gate within validation, and reader-facing QA is a subcontract within paper. The paper scaffold is generated from problem facts and the paper plan, while the validator checks its file inventory, per-question coverage, placeholders, compile engine, internal-metadata separation, and official-format review status.
+Accepted decision scopes are the canonical source for stage snapshots. Handoffs reuse the same small set of stage artifacts and compute an upstream digest. This avoids a second manual maintenance schema. The review package is the exception that copies files because the reviewer may operate in another task or workspace.
 
-SHA-256 is used only when byte identity changes the evidence: preserved official sources, formal computation inputs, claim-bearing outputs, approval scope, and the final reviewed PDF. Ordinary code, LaTeX, documentation, logs, caches, support files, and editing-stage figures rely on paths, Git/source revisions, executable checks, and human review unless a digest is explicitly useful.
+`workflow_checks.py` always rechecks cheap hard invariants. Trusted snapshots suppress the need for repeated human/semantic review; they do not suppress official-source, run, result, review-package, handoff, or final-PDF identity checks.
+
+Official computation binds one selected MATLAB/Python implementation to a source-tree snapshot, successful command, inputs, outputs, logs, assertions, and results. Final compilation similarly binds the PDF to the editable LaTeX source-tree snapshot.

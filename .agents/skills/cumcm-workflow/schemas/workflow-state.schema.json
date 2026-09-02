@@ -3,10 +3,21 @@
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/workflow-state.schema.json",
   "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
   "type": "object",
-  "required": ["workflow_version", "current_stage", "stages"],
+  "required": ["workflow_version", "mode", "implementation", "current_stage", "stages"],
   "properties": {
     "artifact_type": {"const": "workflow_state"},
-    "workflow_version": {"const": "0.4.0"},
+    "workflow_version": {"const": "0.5.0"},
+    "mode": {"enum": ["working", "finalizing"]},
+    "implementation": {
+      "type": "object",
+      "required": ["preferred", "fallback", "selection"],
+      "properties": {
+        "preferred": {"enum": ["matlab", "python"]},
+        "fallback": {"enum": ["matlab", "python"]},
+        "selection": {"enum": ["auto", "matlab", "python"]}
+      },
+      "additionalProperties": false
+    },
     "current_stage": {"enum": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"]},
     "stages": {
       "type": "object",

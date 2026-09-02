@@ -5,7 +5,7 @@ description: Independently review a CUMCM computation package before its claims 
 
 # CUMCM Independent Review
 
-Review this package without consulting the originating conversation. Treat every supplied conclusion as untrusted and reconstruct the task from the official inputs, contracts, code, run records, and executed outputs.
+Review this freshness-bound package without consulting the originating conversation. Treat conclusions as untrusted and reconstruct only what is needed from official inputs, contracts, selected source, official runs, and outputs.
 
 ## Boundaries
 
@@ -13,7 +13,8 @@ Review this package without consulting the originating conversation. Treat every
 - Do not search for missing official materials. Report them as missing.
 - Do not edit, rerun, or replace the preserved execution unless the user separately authorizes a reproduction run.
 - File existence and successful execution do not prove that the model answers the official question.
-- Give exact file, formula, code, or numerical locations for every finding.
+- Verify the package/upstream bindings before substantive review; a stale package is inconclusive.
+- Give exact file, formula, code, or numerical locations for every P0/P1 finding.
 - Preserve negative and inconclusive findings verbatim.
 
 ## Review order
@@ -22,7 +23,7 @@ Review this package without consulting the originating conversation. Treat every
 2. Reconstruct each subproblem from the supplied official files and `PROBLEM_FACTS.json`.
 3. Compare the official request with the model objective, variables, constraints, assumptions, and cross-question dependencies.
 4. Inspect computation entry points, run manifests, executed outputs, and result locators.
-5. Challenge at least these failure classes:
+5. Challenge relevant failure classes:
    - task or target misunderstood;
    - upper/lower bound or optimization direction reversed;
    - a quantity counted twice;
@@ -31,12 +32,14 @@ Review this package without consulting the originating conversation. Treat every
    - cross-question contradiction;
    - code and mathematical formulation disagree;
    - numerical output violates units, bounds, conservation, or official constraints.
-6. Write the raw review to `INDEPENDENT_REVIEW_RAW.md` and the structured result to `INDEPENDENT_REVIEW_RESULT.json` using the supplied schema example.
+6. For targeted mode, first resolve every targeted prior P0. Do not repeat a full review unless the target change has global impact.
+7. Write the raw review and structured result using the supplied template.
 
 ## Verdict
 
-- `accepted`: no fatal or unresolved major defect was found in the reviewed scope.
-- `revision_requested`: at least one fatal or unresolved major defect requires returning to model design or computation.
+- `accepted`: no open P0 and no material unresolved concern in scope.
+- `accepted_with_concerns`: no open P0; one or more P1 concerns remain.
+- `revision_required`: at least one open P0 requires returning to the earliest affected stage.
 - `inconclusive`: required material is missing or the available evidence cannot support a decision.
 
-State the reviewer, model if applicable, task reference, whether this is a different conversation, and the appropriate independence grade. Never describe a same-context review as independent.
+Classify findings as P0/P1/P2 and open/resolved/accepted_concern. State the reviewer, model if applicable, originating/reviewer task references, and independence grade. Never describe same-context review as independent; a same-model fresh task remains correlated.

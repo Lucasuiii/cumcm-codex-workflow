@@ -1,93 +1,91 @@
 ---
 name: cumcm-workflow
-description: Build or resume a CUMCM mathematical-modeling project from official problem files through modeling, executed computation, validation, LaTeX writing, and delivery. Use for Chinese undergraduate mathematical-modeling competition work; do not use for ordinary paper polishing or unsupported one-shot answer generation.
+description: Build or resume a contest-ready CUMCM project from official files through modeling, one selected computation backend, bounded validation, fresh-context paper writing, and final delivery. Use for real CUMCM work; do not use for ordinary paper polishing or unsupported one-shot answers.
 ---
 
 # CUMCM Workflow
 
-Create a reproducible contest project whose conclusions remain traceable to official sources and executed results.
+Run a contest-native workflow whose important claims remain traceable to official sources and successful computation without turning every draft into an audit package.
 
 ## Start or resume
 
-1. Locate `.cumcm/state.json`. Resume only when it declares exact workflow version `0.4.0`; otherwise stop and report that the project is outside this Skill's accepted contract.
-2. If no state exists and the user asks to initialize from a local official-input path, read [references/01-intake.md](references/01-intake.md), resolve the project ID and a safe target, and run `scripts/init_project.py` for them. Do not make the user assemble or execute the command.
-3. Use the `strict` profile by default. Use `sprint` only when the user prioritizes contest-time speed; it may reduce exploration and polish but never source, execution, consistency, or claim checks.
-4. Load only the reference for the active stage. Do not load every stage guide at once.
-5. Validate required artifacts before advancing. A conflict returns to its earliest owning stage and blocks dependent stages without deleting their artifacts.
+1. Locate `.cumcm/state.json`. Resume an exact `0.5.0` project. For a v0.4 workspace, offer `scripts/migrate_v04_to_v05.py`; migration copies into a new target, preserves the source, and requires claim-bearing computation to be rerun before finalizing.
+2. If no state exists and the user supplies official files, read [01-intake.md](references/01-intake.md), choose a safe target, and run `scripts/init_project.py`. Do not make the user assemble the command.
+3. Read only the active stage guide plus [handoffs.md](references/handoffs.md) when crossing stages. A fresh task reads its handoff first, not the entire workspace or old conversation.
+4. Keep the six responsibilities distinct: orchestrator, modeling, computation, validation, paper, and delivery. Do not simulate separation by inventing many small Skills.
 
-## Stages
+## Modes
 
-| Stage | Reference | Human gate |
+- `working`: fast modeling, computation, debugging, and revision. Enforce official-input protection, real execution, exact result locators, code/output provenance, and non-fabrication. Missing final paper artifacts, review polish, or optional analyses do not block exploration.
+- `finalizing`: freeze claim-bearing results, require current stage decisions and snapshots, fresh handoffs, bounded independent review, paper/PDF QA, and delivery binding.
+
+`strict` and `sprint` remain compatible check profiles, but mode controls when formal gates apply. `enforce` in `working` reports `working_ready`; it is not a formal stage approval. In `finalizing`, `enforce` cannot pass unless every stage through the requested stage is marked `passed` and has a current accepted decision.
+
+Switch modes with `scripts/set_mode.py`; entering finalizing reports the current preflight gaps instead of inventing approvals.
+
+## Roles and handoffs
+
+| Responsibility | Main reference | Outgoing handoff |
 |---|---|---|
-| `intake` | [01-intake.md](references/01-intake.md) | confirm the official input set and source-manifest review |
-| `problem-analysis` | [02-problem-analysis.md](references/02-problem-analysis.md) | approve facts, interpretation, and capabilities |
-| `model-design` | [03-model-design.md](references/03-model-design.md) | choose model, dependencies, and scope |
-| `computation` | [04-computation.md](references/04-computation.md) | approve preserved runs and indexed results |
-| `validation` | [05-validation.md](references/05-validation.md) | first route a packaged review to a user-selected separate reviewer, then approve evidence states, limitations, and claims |
-| `paper` | [06-paper-writing.md](references/06-paper-writing.md) and [latex-template.md](references/latex-template.md) | approve the modular source, version-bound content, layout, and issue closure |
-| `delivery` | [07-compile-delivery.md](references/07-compile-delivery.md) | approve the compiled, visually reviewed submission package |
+| Modeling | [02-problem-analysis.md](references/02-problem-analysis.md), [03-model-design.md](references/03-model-design.md) | `modeling-computation` |
+| Computation | [04-computation.md](references/04-computation.md) | `computation-validation` |
+| Validation | [05-validation.md](references/05-validation.md) | `validation-paper` |
+| Paper | [06-paper-writing.md](references/06-paper-writing.md), [latex-template.md](references/latex-template.md) | `paper-delivery` |
+| Delivery | [07-compile-delivery.md](references/07-compile-delivery.md) | final package |
 
-## Invariants
+Build handoffs with `scripts/build_handoff.py`. They contain canonical paths, compact downstream payloads, and an upstream digest. Do not copy full logs, failed runs, debug history, or old review conversations. A stale digest requires rebuilding the handoff.
 
-- Treat the official statement and official attachments as the factual source of record.
-- OCR routes attention; rendered pages decide formulas, tables, and ambiguous notation.
-- Preserve raw inputs. Write generated artifacts into separate stage directories.
-- Do not advance past a human gate without explicit approval.
-- Do not invent observed data. Mark genuine simulations as `simulated` and record their generator and seed.
-- Run code before citing its output. Preserve commands, exit status, logs, environment, and hashes for formal inputs and claim-bearing outputs.
-- Let tools record and compare digests; never require a person to inspect or confirm a 64-character hash manually.
-- Link sources, facts, capabilities, model components, runs, results, claims, and figures with stable IDs rather than prose matching.
-- State the feasible set, policy class, approximation, and certificate behind every optimality claim.
-- Paper text may summarize validated artifacts but may not create new numerical results.
-- Internal IDs, evidence states, run coverage, paths, and gate language belong in sidecars and must not render in the final paper.
-- For each subproblem, preserve the chain from interpretation and assumptions through derivation, computation, results, validation, and limitations. Do not use page count or figure count as a quality certificate.
-- Human decisions are append-only and artifact-bound. If an approved artifact changes, obtain a new decision; do not rewrite history.
-- Schema or keyword checks establish structure only, never mathematical truth.
-- Official compliance uses user-supplied materials only. Missing rules or templates block delivery and never authorize autonomous web search.
-- Require final PDF, editable LaTeX source, and computation source as separate delivery roles.
-- Use SHA-256 only where byte identity is evidence-critical: official sources, formal inputs, claim-bearing outputs, decision scope, and the reviewed final PDF.
+## Evidence gates
 
-Read [references/artifact-contracts.md](references/artifact-contracts.md) when creating or validating project files. Read [references/evidence-rules.md](references/evidence-rules.md) before model selection, claim review, or paper writing.
+Treat findings by consequence:
 
-## Initialize from conversation
+- hard invariant / `P0`: wrong data or computation, task mismatch, unsupported key claim, code/result disagreement, stale provenance, fabricated approval/review, simulated data presented as observed, or final-version mismatch. These block.
+- warning / `P1`: strong assumptions, weak baseline, incomplete validation or sensitivity, limited model fit, or a thin section. These remain visible but do not block.
+- suggestion / `P2`: wording, layout, optional chart, or extra experiment. These do not enter the gate.
 
-The normal interface is a Codex request containing the official file or directory path, for example: `请初始化国赛项目，官方题目和附件在 /absolute/path/to/2026B题。` Explicit `$cumcm-workflow` invocation is optional when the intent is already clear.
+Independent validation uses `accepted`, `accepted_with_concerns`, `revision_required`, or `inconclusive`. Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of those findings. A genuinely new P0 may still block; P1/P2 findings do not grow an endless blocking queue.
 
-When that intent and path are present, initialize autonomously:
+## Computation backend
 
-1. Inspect the supplied path read-only. Treat a supplied file as the input set requested by the user; treat a supplied directory as the bundle to inventory. Do not silently add neighboring files.
-2. Infer a stable ID such as `CUMCM-2026-B` from explicit conversation context, path names, filenames, or the visible statement title. Ask one short question only if the competition year/problem identifier is still genuinely ambiguous.
-3. Use a user-specified target when present. Otherwise choose a sibling directory named from the normalized ID, such as `cumcm-2026-b-workspace`. If it is non-empty, stop and ask for a target instead of overwriting it or silently creating duplicates.
-4. Resolve `scripts/init_project.py` relative to this Skill and run it with absolute paths, the inferred ID, and `strict` profile. The initialization request authorizes creation of this new local workspace; it does not authorize approval of the intake gate.
-5. Read the generated initialization and validation reports. Tell the user the absolute project path, copied-source count, ignored operating-system metadata, gate status, and the exact artifacts awaiting review.
+Project state defaults to:
 
-The script copies but never deletes or edits official inputs. It creates the complete directory layout, v0.4 state, source manifest, project brief, initialization receipt, and intake preflight report. It does not infer problem facts, models, results, reviews, or decisions.
-
-The command-line form is an internal/maintainer interface, not a required user step:
-
-```bash
-python3 scripts/init_project.py --project <new-project> \
-  --project-id <stable-id> --official <official-file-or-directory>
+```json
+{"preferred":"matlab","fallback":"python","selection":"auto"}
 ```
 
-## Validate
+Use `scripts/backend_selection.py` or the same criteria to choose one backend for each official task. Consider numerical methods, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV work, machine learning, available toolboxes/packages, existing code, complexity, and runtime stability. MATLAB preference breaks ties; it is not mandatory. Once selected, implement and officially run one language only. Switch to fallback when the chosen runtime or dependency cannot execute reliably. Do not create parity implementations unless the user explicitly requests them.
 
-From the Skill directory, run:
+Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs, outputs, assertions, and `official_run: true`. Results may cite only successful official runs and exact `path#JSON-pointer` values.
+
+## Contest invariants
+
+- Preserve and byte-identify official sources. OCR routes attention; rendered pages decide formulas, tables, and ambiguous notation.
+- Never invent observed data, approvals, independent review, or successful execution. Label genuine simulations and record their generator and seed.
+- Keep mathematical model and result contracts language-neutral.
+- Use SHA-256 only for evidence-critical identity: official sources, formal inputs, claim-bearing outputs, compact snapshots/handoffs, review packages, selected source trees, and the reviewed final PDF.
+- Keep internal IDs, evidence states, local paths, run coverage, and workflow language out of the visible paper.
+- Paper writing selects claims and the best representation—prose, equation, table, or figure—before LaTeX drafting. No minimum figure/page count is a hard gate.
+- Bind the final PDF to its reviewed bytes and to the exact editable LaTeX source snapshot used for compilation.
+- Missing current official rules or templates blocks delivery; it does not authorize autonomous search or submission.
+- Final delivery contains the reviewed PDF, editable LaTeX, and computation source as separate roles.
+
+Read [artifact-contracts.md](references/artifact-contracts.md) when creating machine-readable files and [evidence-rules.md](references/evidence-rules.md) before model selection, review, or paper claims.
+
+## Validate and revalidate
 
 ```bash
-python3 scripts/cumcm_check.py --project <project> --stage <stage> --profile strict --gate-mode enforce
+python3 scripts/cumcm_check.py --project <project> \
+  --stage <stage> --profile strict --gate-mode enforce
 ```
 
-Use `--gate-mode preflight` while preparing a review: it may return zero only when automated checks pass and the remaining findings are human decisions. Use `enforce` before advancing or delivery. The report is written to `.cumcm/validation-report.json`. A zero exit code means the applicable automated and gate-mode checks passed; it is not a correctness certificate.
+For a known change, add repeated `--changed <path>` and one `--impact cosmetic|local|semantic|claim_changing|global`. The report gives the affected stages rather than defaulting to a full-workspace audit. Accepted decisions automatically create `.cumcm/snapshots/<stage>.json`; unchanged snapshots appear as trusted in the report. Hard invariants are still checked even when a snapshot is trusted.
 
-Record an explicit decision only after showing the reviewer the exact artifacts and receiving their decision:
+Record a decision only after showing the exact artifact and receiving the decision:
 
 ```bash
 python3 scripts/record_decision.py --project <project> --stage <stage> \
-  --decision accepted --decision-id <unique-id> --reviewer <name> \
-  --task-turn-ref <turn-ref> --summary <user-visible-summary>
+  --decision accepted --decision-id <id> --reviewer <name> \
+  --task-turn-ref <ref> --summary <visible-summary>
 ```
 
-## Final audit hook
-
-The workflow exports stable claim, run, paper-quality, and delivery contracts for a later audit. Record final `model-xray` audit as deferred unless the user explicitly requests it; do not invoke it automatically.
+Passing establishes current structure, provenance, successful execution, and recorded review boundaries. It does not prove mathematical correctness or global optimality.

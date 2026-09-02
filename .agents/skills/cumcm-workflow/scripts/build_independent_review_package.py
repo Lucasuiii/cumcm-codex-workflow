@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from workflow_checks import WORKFLOW_VERSION, read_json, safe_project_path
+from provenance import digest_records, sha256_file
 
 
 PACKAGE_REL = Path("validation/independent-review-package")
@@ -38,15 +39,47 @@ def copy_material(project: Path, staging: Path, rel: str, role: str, records: li
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
     package_path = (PACKAGE_REL / "materials" / rel).as_posix()
-    records.append({"path": package_path, "role": role, "size": destination.stat().st_size})
+    records.append({"path": package_path, "source_path": rel, "role": role, "size": destination.stat().st_size, "sha256": sha256_file(destination)})
     seen.add(rel)
 
 
-def build(project: Path) -> Path:
+def build(project: Path, *, review_mode: str = "auto", previous_review_path: str | None = None, target_finding_ids: list[str] | None = None, refresh: bool = False) -> Path:
     project = project.resolve()
     destination = project / PACKAGE_REL
-    if destination.exists():
+    target_finding_ids = sorted(set(target_finding_ids or []))
+    current_review = project / "validation" / "INDEPENDENT_REVIEW_RESULT.json"
+    if review_mode == "auto" and current_review.is_file():
+        prior = require_object(current_review)
+        if prior.get("verdict") == "revision_required":
+            review_mode = "targeted"
+            previous_review_path = previous_review_path or "validation/INDEPENDENT_REVIEW_RESULT.json"
+            if not target_finding_ids:
+                target_finding_ids = sorted(
+                    str(item.get("finding_id")) for item in prior.get("findings", [])
+                    if isinstance(item, dict) and item.get("severity") == "P0" and item.get("status") == "open"
+                )
+            refresh = True
+        else:
+            review_mode = "full"
+    elif review_mode == "auto":
+        review_mode = "full"
+    if review_mode not in {"full", "targeted"}:
+        raise ValueError("review_mode must be auto, full, or targeted")
+    if destination.exists() and not refresh:
         raise ValueError(f"refusing to overwrite existing review package: {destination}")
+    if review_mode == "targeted" and (not previous_review_path or not target_finding_ids):
+        raise ValueError("targeted review requires previous_review_path and target_finding_ids")
+    if review_mode == "targeted" and previous_review_path == "validation/INDEPENDENT_REVIEW_RESULT.json" and current_review.is_file():
+        prior = require_object(current_review)
+        history_dir = project / "validation" / "review-history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        safe_id = "".join(char if char.isalnum() or char in "-_" else "_" for char in str(prior.get("review_id", "previous-review")))
+        archived_review = history_dir / f"{safe_id}.json"
+        if archived_review.exists() and archived_review.read_bytes() != current_review.read_bytes():
+            raise ValueError(f"review history target already exists with different content: {archived_review}")
+        if not archived_review.exists():
+            shutil.copy2(current_review, archived_review)
+        previous_review_path = archived_review.relative_to(project).as_posix()
 
     state = require_object(project / ".cumcm/state.json")
     if state.get("workflow_version") != WORKFLOW_VERSION:
@@ -73,6 +106,7 @@ def build(project: Path) -> Path:
                     "path": (PACKAGE_REL / name).as_posix(),
                     "role": "review_instruction",
                     "size": (staging / name).stat().st_size,
+                    "sha256": sha256_file(staging / name),
                 }
             )
 
@@ -121,7 +155,12 @@ def build(project: Path) -> Path:
             "updated_at": None,
             "producer": {"kind": "external_tool", "name": "selected independent reviewer", "version": None},
             "review": {"decision": "unreviewed", "reviewer": None, "reviewed_at": None, "scope": "imported independent review", "notes": None},
+            "review_id": "REPLACE",
             "package_manifest_path": (PACKAGE_REL / "REVIEW_PACKAGE_MANIFEST.json").as_posix(),
+            "package_digest": "REPLACE_AFTER_PACKAGE_BUILD",
+            "review_mode": review_mode,
+            "previous_review_path": previous_review_path,
+            "target_finding_ids": target_finding_ids,
             "reviewer_context": {
                 "reviewer_kind": "same_model_new_context",
                 "reviewer": "REPLACE",
@@ -136,6 +175,13 @@ def build(project: Path) -> Path:
             "raw_review_path": "validation/INDEPENDENT_REVIEW_RAW.md",
             "reviewed_files": [],
         }
+        generated_at = utc_now()
+        package_digest = digest_records(records)
+        upstream_records = [
+            {"path": str(item["source_path"]), "sha256": str(item["sha256"])}
+            for item in records if item.get("source_path")
+        ]
+        result_template["package_digest"] = package_digest
         (staging / "INDEPENDENT_REVIEW_RESULT_TEMPLATE.json").write_text(
             json.dumps(result_template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
@@ -144,10 +190,9 @@ def build(project: Path) -> Path:
                 "path": (PACKAGE_REL / "INDEPENDENT_REVIEW_RESULT_TEMPLATE.json").as_posix(),
                 "role": "review_instruction",
                 "size": (staging / "INDEPENDENT_REVIEW_RESULT_TEMPLATE.json").stat().st_size,
+                "sha256": sha256_file(staging / "INDEPENDENT_REVIEW_RESULT_TEMPLATE.json"),
             }
         )
-
-        generated_at = utc_now()
         manifest = {
             "schema_version": WORKFLOW_VERSION,
             "artifact_type": "independent_review_package",
@@ -158,13 +203,25 @@ def build(project: Path) -> Path:
             "package_root": PACKAGE_REL.as_posix(),
             "review_skill_path": (PACKAGE_REL / "SKILL.md").as_posix(),
             "review_request_path": (PACKAGE_REL / "REVIEW_REQUEST.md").as_posix(),
+            "review_mode": review_mode,
+            "previous_review_path": previous_review_path,
+            "target_finding_ids": target_finding_ids,
+            "upstream_digest": digest_records(upstream_records),
+            "package_digest": package_digest,
             "conclusions_withheld": True,
             "files": sorted(records, key=lambda item: item["path"]),
-            "reviewer_selection": {"status": "unreviewed", "selected_by": None, "reviewer": None, "model": None, "task_ref": None},
+            "reviewer_selection": {"status": "unreviewed", "selected_by": None, "reviewer": None, "model": None, "originating_task_ref": None, "task_ref": None},
         }
         (staging / "REVIEW_PACKAGE_MANIFEST.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+        if destination.exists():
+            archive_root = project / "validation" / "review-archive"
+            archive_root.mkdir(parents=True, exist_ok=True)
+            archived = archive_root / f"package-{manifest['package_digest'][:12]}"
+            if archived.exists():
+                raise ValueError(f"review package archive already exists: {archived}")
+            shutil.move(destination, archived)
         shutil.copytree(staging, destination)
     return destination / "REVIEW_PACKAGE_MANIFEST.json"
 
@@ -172,9 +229,13 @@ def build(project: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build the user-routed independent review package before validation")
     parser.add_argument("--project", required=True, type=Path)
+    parser.add_argument("--review-mode", choices=("auto", "full", "targeted"), default="auto")
+    parser.add_argument("--previous-review-path")
+    parser.add_argument("--target-finding-id", action="append", default=[])
+    parser.add_argument("--refresh", action="store_true")
     args = parser.parse_args()
     try:
-        manifest = build(args.project)
+        manifest = build(args.project, review_mode=args.review_mode, previous_review_path=args.previous_review_path, target_finding_ids=args.target_finding_id, refresh=args.refresh)
     except ValueError as exc:
         parser.error(str(exc))
     print(f"created independent review package: {manifest}")

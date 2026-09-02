@@ -1,7 +1,7 @@
 {
   "template_id": "cumcm-contest-ctex",
-  "template_version": "0.4.0",
+  "template_version": "0.5.0",
   "engine": "xelatex",
   "mode": "contest_ctex",
-  "description": "Reader-facing modular CTeX template for CUMCM papers, with no default table of contents and no rendered workflow metadata."
+  "description": "Reader-facing, claim-led modular CTeX template for CUMCM papers, with flexible section narratives and no rendered workflow metadata."
 }

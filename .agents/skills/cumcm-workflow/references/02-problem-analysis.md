@@ -13,4 +13,4 @@ Translate each subproblem into observable capabilities: requested output, offici
 
 Use stable fact and capability IDs. Do not treat a method name or keyword as implementation evidence. Identify ambiguous wording and compare plausible interpretations before choosing one.
 
-Stop with `awaiting_review` and ask the user to approve the interpretation. Do not select a final model yet.
+Record the chosen interpretation and its alternatives. In `working` mode, continue with reversible model exploration when ambiguity does not change the data meaning or requested output. Ask for an explicit user decision only when competing interpretations would materially change the mathematical task, official-data use, or final claims; do not silently freeze a final model before that decision.

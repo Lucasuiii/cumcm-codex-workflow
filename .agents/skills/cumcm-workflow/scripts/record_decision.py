@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from workflow_checks import STAGES, safe_project_path, sha256, stage_scope_paths
+from provenance import digest_records
 
 
 def load_events(path: Path) -> list[dict]:
@@ -73,6 +76,26 @@ def main() -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+    snapshot_path = root / ".cumcm" / "snapshots" / f"{args.stage}.json"
+    if args.decision == "accepted":
+        snapshot = {
+            "snapshot_version": "0.5.0",
+            "project_id": json.loads((root / ".cumcm" / "state.json").read_text(encoding="utf-8")).get("project_id"),
+            "stage": args.stage,
+            "decision_id": args.decision_id,
+            "decision": args.decision,
+            "created_at": event["decided_at"],
+            "artifacts": scope,
+            "snapshot_digest": digest_records(scope),
+        }
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=snapshot_path.parent, delete=False) as stream:
+            json.dump(snapshot, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            temp_name = stream.name
+        os.replace(temp_name, snapshot_path)
+    else:
+        snapshot_path.unlink(missing_ok=True)
     print(f"recorded {args.decision_id} for {args.stage}; {len(scope)} artifact(s) bound")
     return 0
 

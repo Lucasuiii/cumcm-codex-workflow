@@ -22,7 +22,9 @@ def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_i
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.4.0",
+            "workflow_version": "0.5.0",
+            "mode": "working",
+            "implementation": {"preferred": "matlab", "fallback": "python", "selection": "auto"},
             "current_stage": "paper",
             "stages": {
                 "intake": "passed",
@@ -54,6 +56,15 @@ def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_i
     plan = envelope("paper_plan")
     plan.update(
         {
+            "claim_selection": [
+                {"claim_id": f"CLM-{ident}", "subproblem_id": ident, "purpose": f"answer {ident}"}
+                for ident in problem_ids
+            ],
+            "representation_plan": [],
+            "paper_structure": [
+                {"section_id": f"SEC-{ident}", "title": ident, "purpose": f"answer {ident}", "subproblem_ids": [ident], "claim_ids": [f"CLM-{ident}"]}
+                for ident in (plan_ids if plan_ids is not None else problem_ids)
+            ],
             "reference_reviews": [],
             "reader_narrative": {
                 "one_sentence_contribution": "Synthetic reader-facing paper plan.",

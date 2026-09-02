@@ -16,6 +16,7 @@ SCRIPTS = ROOT / ".agents" / "skills" / "cumcm-workflow" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from workflow_checks import check_project  # noqa: E402
+from provenance import digest_records, tree_snapshot  # noqa: E402
 
 
 def digest(data: bytes) -> str:
@@ -34,11 +35,11 @@ def review(decision: str = "accepted") -> dict:
 
 def envelope(kind: str) -> dict:
     return {
-        "schema_version": "0.4.0",
+        "schema_version": "0.5.0",
         "artifact_type": kind,
         "project_id": "SYNTHETIC-2024-B",
         "updated_at": "2026-08-30T12:00:00Z",
-        "producer": {"kind": "script", "name": "test-fixture", "version": "0.4.0"},
+        "producer": {"kind": "script", "name": "test-fixture", "version": "0.5.0"},
         "review": review(),
     }
 
@@ -84,7 +85,9 @@ def build_valid_project(root: Path) -> None:
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.4.0",
+            "workflow_version": "0.5.0",
+            "mode": "working",
+            "implementation": {"preferred": "matlab", "fallback": "python", "selection": "auto"},
             "current_stage": "validation",
             "stages": {
                 "intake": "passed",
@@ -198,6 +201,17 @@ def build_valid_project(root: Path) -> None:
             "finished_at": "2026-08-30T12:00:01Z",
             "exit_code": 0,
             "status": "completed",
+            "official_run": True,
+            "implementation": {
+                "selected_language": "python",
+                "selection_rationale": "existing Python fixture is the simplest reliable implementation",
+                "entry_point": "code/solve.py",
+                "runtime": "Python 3 fixture",
+                "dependencies": [],
+                "matlab_toolboxes": [],
+                "fallback_from": None,
+                "source_snapshot": tree_snapshot(root, ["code/solve.py"]),
+            },
             "inputs": [
                 {
                     "path": "problem/official/problem.txt",
@@ -259,15 +273,22 @@ def build_valid_project(root: Path) -> None:
     for name, (role, payload) in package_materials.items():
         target = package_dir / name
         target.write_bytes(payload)
-        package_files.append({"path": f"validation/independent-review-package/{name}", "role": role, "size": len(payload)})
+        package_files.append({"path": f"validation/independent-review-package/{name}", "role": role, "size": len(payload), "sha256": digest(payload)})
     (package_dir / "REVIEW_REQUEST.md").write_text("# Review request\n", encoding="utf-8")
-    package_files.append({"path": "validation/independent-review-package/REVIEW_REQUEST.md", "role": "review_instruction", "size": (package_dir / "REVIEW_REQUEST.md").stat().st_size})
+    request_bytes = (package_dir / "REVIEW_REQUEST.md").read_bytes()
+    package_files.append({"path": "validation/independent-review-package/REVIEW_REQUEST.md", "role": "review_instruction", "size": len(request_bytes), "sha256": digest(request_bytes)})
+    package_digest = digest_records(package_files)
     independent_package = envelope("independent_review_package")
     independent_package.update(
         {
             "package_root": "validation/independent-review-package",
             "review_skill_path": "validation/independent-review-package/SKILL.md",
             "review_request_path": "validation/independent-review-package/REVIEW_REQUEST.md",
+            "review_mode": "full",
+            "previous_review_path": None,
+            "target_finding_ids": [],
+            "upstream_digest": "0" * 64,
+            "package_digest": package_digest,
             "conclusions_withheld": True,
             "files": package_files,
             "reviewer_selection": {
@@ -275,16 +296,22 @@ def build_valid_project(root: Path) -> None:
                 "selected_by": "fixture-user",
                 "reviewer": "fixture-reviewer",
                 "model": "fixture-model",
+                "originating_task_ref": "fixture-origin-task",
                 "task_ref": "fixture-independent-task",
             },
         }
     )
     write_json(root, "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json", independent_package)
-    (root / "validation" / "INDEPENDENT_REVIEW_RAW.md").write_text("# Independent review\nNo fatal findings.\n", encoding="utf-8")
+    (root / "validation" / "INDEPENDENT_REVIEW_RAW.md").write_text("# Independent review\nNo P0 findings.\n", encoding="utf-8")
     independent_result = envelope("independent_review_result")
     independent_result.update(
         {
+            "review_id": "REVIEW-001",
             "package_manifest_path": "validation/independent-review-package/REVIEW_PACKAGE_MANIFEST.json",
+            "package_digest": package_digest,
+            "review_mode": "full",
+            "previous_review_path": None,
+            "target_finding_ids": [],
             "reviewer_context": {
                 "reviewer_kind": "different_model",
                 "reviewer": "fixture-reviewer",
@@ -382,27 +409,6 @@ def build_valid_project(root: Path) -> None:
     )
     write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
 
-    for index, stage in enumerate(("intake", "problem-analysis", "model-design", "computation", "validation"), 1):
-        completed = subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPTS / "record_decision.py"),
-                "--project", str(root),
-                "--stage", stage,
-                "--decision", "accepted",
-                "--decision-id", f"DEC-CORE-{index:03d}",
-                "--reviewer", "fixture-reviewer",
-                "--task-turn-ref", f"fixture-core-{index}",
-                "--summary", f"Accepted fixture stage {stage}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode:
-            raise AssertionError(completed.stdout + completed.stderr)
-
-
 class WorkflowCoreTests(unittest.TestCase):
     def run_check(self, root: Path, profile: str = "strict"):
         findings, summary = check_project(root, "validation", profile)
@@ -441,6 +447,7 @@ class WorkflowCoreTests(unittest.TestCase):
             "source-manifest.schema.json",
             "task-capabilities.schema.json",
             "workflow-state.schema.json",
+            "handoff.schema.json",
         }
         self.assertEqual({path.name for path in schemas}, expected)
         for path in schemas:

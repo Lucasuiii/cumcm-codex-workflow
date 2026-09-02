@@ -3,9 +3,55 @@
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/paper-plan.schema.json",
   "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
   "type": "object",
-  "required": ["reference_reviews", "reader_narrative", "claims_evidence_matrix", "question_argument_chains", "figure_plan", "page_budget"],
+  "required": ["claim_selection", "representation_plan", "paper_structure"],
   "properties": {
     "artifact_type": {"const": "paper_plan"},
+    "claim_selection": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["claim_id", "subproblem_id", "purpose"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1},
+          "subproblem_id": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": true
+      }
+    },
+    "representation_plan": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item_id", "claim_ids", "medium", "purpose"],
+        "properties": {
+          "item_id": {"type": "string", "minLength": 1},
+          "claim_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "result_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "medium": {"enum": ["prose", "equation", "table", "figure"]},
+          "purpose": {"type": "string", "minLength": 1},
+          "artifact_id": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "paper_structure": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["section_id", "title", "purpose", "subproblem_ids", "claim_ids"],
+        "properties": {
+          "section_id": {"type": "string", "minLength": 1},
+          "title": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "subproblem_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "claim_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": true
+      }
+    },
     "reader_narrative": {
       "type": "object",
       "required": ["one_sentence_contribution", "judge_reading_path", "internal_metadata_policy"],
@@ -33,7 +79,6 @@
     },
     "claims_evidence_matrix": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["claim_id", "subproblem_id", "planned_sections", "evidence_ids", "status"],
@@ -49,7 +94,6 @@
     },
     "question_argument_chains": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["subproblem_id", "layers"],
@@ -57,8 +101,7 @@
           "subproblem_id": {"type": "string", "minLength": 1},
           "layers": {
             "type": "object",
-            "required": ["problem_interpretation", "assumptions_boundaries", "variables_parameters", "objective_constraints", "derivation", "algorithm", "results", "validation", "limitations"],
-            "additionalProperties": false,
+            "additionalProperties": true,
             "properties": {
               "problem_interpretation": {"$ref": "#/$defs/layer"},
               "assumptions_boundaries": {"$ref": "#/$defs/layer"},

@@ -1,15 +1,16 @@
 # Workflow contract
 
-| Stage | Required review | May advance when |
+| Responsibility | Hard invariant | Non-blocking concern |
 |---|---|---|
-| Intake | structural + human | user-supplied official inputs are inventoried, byte-identified, and confirmed complete |
-| Problem analysis | structural + human | facts, interpretation, assumptions, and capability coverage are approved |
-| Model design | structural + human | model ownership, dependencies, alternatives, and optimality scope are approved |
-| Computation | execution + numerical + human | code ran, immutable outputs are preserved, and indexed values match exact output locators |
-| Validation | independent + numerical + semantic + human | a user-selected separate reviewer has checked the packaged evidence; cross-question consistency, evidence states, strong-claim certificates, and limitations are approved |
-| Paper | structural + semantic + visual + human | every question has a planned and reviewed problem-solving narrative; internal metadata remains sidecar-only; numerical presentation flags and critical issues are closed; content and all final pages are reviewed against the exact PDF |
-| Delivery | structural + execution + visual + human | user-supplied compliance materials, compile receipt, reviewed PDF, editable LaTeX, computation source, diagnostics, delivery manifest, and version-bound decision agree |
+| Intake | official inputs preserved and correctly identified | optional source metadata polish |
+| Modeling | every official subproblem has an owned output; model scope does not contradict the task | alternative model breadth, stronger assumptions |
+| Computation | one successful official backend, current source snapshot, formal inputs/outputs, exact result locator | extra assertions or diagnostics |
+| Validation | fresh package, no open P0, claims have evidence and scope | P1 validation/sensitivity/generalization concern; P2 suggestion |
+| Paper | every subproblem answered; no invented results or visible internal metadata; no open paper P0 | chart density, section strength, optional polish |
+| Delivery | exact reviewed PDF, current editable source snapshot, successful compile, official-format review, three delivery roles | non-critical presentation improvements |
 
-`strict` and `sprint` may differ in exploration and polish. Both block on official-source identity, formal run input and claim-bearing output identity, the exact final-PDF identity, execution, contradiction, result trace, cross-question consistency, independent-review defects, claim evidence, open P0 issues, final-version mismatches, and stale approval scope. Editing-stage figure digest drift and redundant byte-size mismatches are warnings. A final PDF requires complete rendered-page coverage in either profile.
+Working mode can proceed with incomplete downstream artifacts. Finalizing enforce requires all stages through the target to be passed and covered by current accepted decisions. A state edit cannot substitute for a decision.
 
-`preflight` distinguishes “automation complete, waiting for a person” from a failed build. It does not demote stale decisions, required-identity drift, missing evidence, failed independent/content/layout checks, or compile mismatch. `enforce` is required before a stage is treated as passed.
+Independent review begins with a full pass. If it returns P0 findings, the next pass defaults to targeted re-review. `accepted_with_concerns` is sufficient to enter paper work because open P1 items do not demonstrate false results.
+
+Change impact controls revalidation scope. Cosmetic and local changes do not trigger full-workspace review. Semantic, claim-changing, and global changes expand only as far as their downstream consequences require.

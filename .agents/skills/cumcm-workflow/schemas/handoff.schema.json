@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/handoff.schema.json",
+  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "type": "object",
+  "required": ["transition", "upstream_stage", "downstream_stage", "upstream_digest", "canonical_artifacts", "payload", "excluded_history"],
+  "properties": {
+    "artifact_type": {"const": "stage_handoff"},
+    "transition": {"enum": ["modeling-computation", "computation-validation", "validation-paper", "paper-delivery"]},
+    "upstream_stage": {"enum": ["model-design", "computation", "validation", "paper"]},
+    "downstream_stage": {"enum": ["computation", "validation", "paper", "delivery"]},
+    "upstream_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "canonical_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "role", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "role": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "payload": {"type": "object"},
+    "excluded_history": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  }
+}

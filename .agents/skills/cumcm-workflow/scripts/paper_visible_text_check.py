@@ -18,7 +18,7 @@ BLOCKING_PATTERNS = {
     "PAPER-TEXT-E001": re.compile(r"\b(?:SRC|FACT|CAP|MODEL|RUN|RES|CLM|FIG)-[A-Z0-9-]+\b"),
     "PAPER-TEXT-E002": re.compile(r"\b(?:supported_not_reproduced|partially_supported|not_supported|not_applicable|missing_evidence|not_checked)\b", re.I),
     "PAPER-TEXT-E003": re.compile(r"(?:validation\s*门禁|workflow\s*gate|claim-bearing|\bvalidation\s+ID\b)", re.I),
-    "PAPER-TEXT-E004": re.compile(r"(?:/Users/|Documents/Codex|[A-Za-z]:\\Users\\)"),
+    "PAPER-TEXT-E004": re.compile(r"(?:file:///|/(?:Users|home)/[^\s/]+/|/private/var/folders/|Documents/Codex|[A-Za-z]:\\(?:Users|Documents and Settings)\\)", re.I),
 }
 
 

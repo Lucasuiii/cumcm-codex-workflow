@@ -3,10 +3,15 @@
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/independent-review-result.schema.json",
   "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
   "type": "object",
-  "required": ["package_manifest_path", "reviewer_context", "verdict", "findings", "raw_review_path", "reviewed_files"],
+  "required": ["review_id", "package_manifest_path", "package_digest", "review_mode", "reviewer_context", "verdict", "findings", "raw_review_path", "reviewed_files"],
   "properties": {
     "artifact_type": {"const": "independent_review_result"},
+    "review_id": {"type": "string", "minLength": 1},
     "package_manifest_path": {"type": "string", "minLength": 1},
+    "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_mode": {"enum": ["full", "targeted"]},
+    "previous_review_path": {"type": ["string", "null"]},
+    "target_finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "reviewer_context": {
       "type": "object",
       "required": ["reviewer_kind", "reviewer", "model", "task_ref", "different_conversation", "selected_by_user", "independence_grade"],
@@ -21,15 +26,16 @@
       },
       "additionalProperties": false
     },
-    "verdict": {"enum": ["accepted", "revision_requested", "inconclusive"]},
+    "verdict": {"enum": ["accepted", "accepted_with_concerns", "revision_required", "inconclusive"]},
     "findings": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["finding_id", "severity", "category", "location", "evidence", "recommendation"],
+        "required": ["finding_id", "severity", "status", "category", "location", "evidence", "recommendation"],
         "properties": {
           "finding_id": {"type": "string", "minLength": 1},
-          "severity": {"enum": ["fatal", "major", "minor"]},
+          "severity": {"enum": ["P0", "P1", "P2"]},
+          "status": {"enum": ["open", "resolved", "accepted_concern"]},
           "category": {"enum": ["task_interpretation", "bound_direction", "double_count", "extrapolation", "missing_variable", "cross_question", "implementation", "numerical", "other"]},
           "location": {"type": "string", "minLength": 1},
           "evidence": {"type": "string", "minLength": 1},

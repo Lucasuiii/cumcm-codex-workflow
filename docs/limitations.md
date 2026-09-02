@@ -1,13 +1,13 @@
 # Limitations
 
-- A completed workflow does not certify a correct model.
-- Human reviewers and language models may share interpretation errors.
-- Deterministic validators cannot establish global optimality, causal identification, or statistical validity without problem-specific evidence.
-- Strong-claim certificate declarations are only traceable records; the validator does not prove that a mathematical certificate is valid.
-- Code-entry and run links establish declared implementation and execution, but problem-specific tests are still needed to show the code matches the equations.
-- Same-model logic review remains correlated even when run in a fresh context; v0.4 records that limitation and only prevents same-conversation review from satisfying the independent gate.
-- Reproducibility requires preserved inputs and executable dependencies; proprietary solvers or unavailable data may limit reruns.
-- Delivery compliance is limited to official materials supplied or explicitly identified by the user. Missing rules or templates block delivery until the user supplies them; autonomous search is not a substitute.
-- The visible-text checker detects known workflow tokens, local paths, excessive decimal precision, and number-dense sentences. It cannot judge whether every sentence is elegant or every displayed precision is scientifically justified.
-- Arbitrary prose-to-number tracing is not inferred from keyword matching; teams must use the result and claim ledgers deliberately.
-- Final claim-level `model-xray` paper auditing is deferred and user-invoked.
+- Passing v0.5 does not certify a correct model, statistical design, or global optimum.
+- Context separation reduces contamination but does not prove reviewer independence. Origin/reviewer task references remain user- and tool-recorded evidence.
+- A same-model fresh task remains correlated.
+- Backend selection uses declared task features and runtime availability; it cannot benchmark every MATLAB toolbox or Python package automatically.
+- Source-tree and file digests establish identity, not that code implements the intended equations.
+- Targeted re-review depends on correct P0 classification. A reviewer may miss a severe issue or overstate a concern.
+- Stage impact classification is judgmental. Hard invariants are still checked to limit under-scoping risk.
+- The visible-text checker catches known internal IDs and common local-home paths; it cannot recognize every sensitive string or judge prose quality.
+- The generic LaTeX scaffold is submission-neutral. Current official compliance depends on user-supplied rules/templates.
+- Migration preserves v0.4 artifacts but deliberately does not recertify old runs.
+- Final claim-level `model-xray` auditing remains optional and user-invoked.

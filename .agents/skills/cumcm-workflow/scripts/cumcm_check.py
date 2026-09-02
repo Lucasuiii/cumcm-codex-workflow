@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run v0.4 CUMCM workflow checks and write a machine-readable report."""
+"""Run v0.5 CUMCM evidence checks and write a machine-readable report."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from workflow_checks import GATE_MODES, PROFILES, STAGES, check_project
+from workflow_checks import CHANGE_IMPACTS, GATE_MODES, PROFILES, STAGES, check_project, plan_scoped_revalidation
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate v0.4 workflow contracts. A passing result establishes "
+            "Validate v0.5 workflow evidence. A passing result establishes "
             "traceability and recorded evidence, not mathematical correctness."
         )
     )
@@ -36,6 +36,8 @@ def main() -> int:
         help="report path; defaults to <project>/.cumcm/validation-report.json",
     )
     parser.add_argument("--no-write-report", action="store_true")
+    parser.add_argument("--changed", action="append", default=[], help="project-relative changed path; repeat as needed")
+    parser.add_argument("--impact", choices=sorted(CHANGE_IMPACTS), help="classify changes for scoped revalidation")
     args = parser.parse_args()
 
     project = args.project.resolve()
@@ -44,12 +46,14 @@ def main() -> int:
     stage = "delivery" if args.all else args.stage
     try:
         findings, summary = check_project(project, stage, args.profile, args.gate_mode)
+        if args.impact:
+            summary["revalidation_scope"] = plan_scoped_revalidation(args.changed, args.impact, stage)
     except (OSError, ValueError) as exc:
         print(f"validator failure: {exc}", file=sys.stderr)
         return 2
 
     payload = {
-        "report_version": "0.4.0",
+        "report_version": "0.5.0",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project_root": str(project),
         "summary": summary,

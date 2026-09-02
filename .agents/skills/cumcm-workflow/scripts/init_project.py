@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a complete v0.4 CUMCM workspace and run intake preflight."""
+"""Create a complete v0.5 CUMCM workspace and run intake preflight."""
 
 from __future__ import annotations
 
@@ -17,10 +17,11 @@ from inventory_artifacts import sha256
 from workflow_checks import check_project
 
 
-WORKFLOW_VERSION = "0.4.0"
+WORKFLOW_VERSION = "0.5.0"
 PROFILES = ("strict", "sprint")
 PROJECT_DIRECTORIES = (
     ".cumcm/tmp",
+    ".cumcm/snapshots",
     "problem/official",
     "analysis",
     "model",
@@ -32,6 +33,7 @@ PROJECT_DIRECTORIES = (
     "figures",
     "paper",
     "delivery",
+    "handoffs",
 )
 IGNORED_SOURCE_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
 
@@ -151,16 +153,18 @@ def write_project_brief(project: Path, project_id: str, profile: str, created_at
 
 - 项目 ID：`{project_id}`
 - 工作流版本：`{WORKFLOW_VERSION}`
-- 运行模式：`{profile}`
+- 工作模式：`working`（冻结前切换为 `finalizing`）
+- 检查配置：`{profile}`
+- 计算偏好：MATLAB 优先、Python fallback、按任务自动择优
 - 初始化时间：`{created_at}`
 - 官方输入文件数：{source_count}
-- 当前阶段：`intake / awaiting_review`
+- 当前阶段：`intake / working`
 
 ## 下一步
 
 1. 查看 `problem/SOURCE_MANIFEST.json` 和 `problem/official/`，确认官方题目、附件及当年规则是否齐全。
 2. 不要仅凭文件存在就批准；公式、表格或版式承载含义的 PDF 需要渲染检查。
-3. 明确批准 intake 后，由 Codex 更新来源清单 review、记录 artifact-bound decision，并运行 enforce。
+3. 工作期可继续拆题；进入 `finalizing` 前必须明确批准 intake，并记录 artifact-bound decision/snapshot。
 4. 进入 `problem-analysis` 后再创建事实、能力和假设文件；初始化器没有推断任何题意、模型或结果。
 
 机器可读初始化记录位于 `.cumcm/init-report.json`，当前 preflight 位于 `.cumcm/validation-report.json`。
@@ -185,9 +189,11 @@ def create_staged_project(
     state.update(
         {
             "workflow_version": WORKFLOW_VERSION,
+            "mode": "working",
+            "implementation": {"preferred": "matlab", "fallback": "python", "selection": "auto"},
             "current_stage": "intake",
             "stages": {
-                "intake": "awaiting_review",
+                "intake": "in_progress",
                 "problem-analysis": "not_started",
                 "model-design": "not_started",
                 "computation": "not_started",
@@ -238,7 +244,7 @@ def create_staged_project(
             "problem/SOURCE_MANIFEST.json",
             "PROJECT_BRIEF.md",
         ],
-        "next_action": "review official input completeness, then record the intake decision",
+        "next_action": "review official input completeness; working mode may continue, finalizing requires an accepted intake snapshot",
     }
     write_json(staging / ".cumcm" / "init-report.json", init_report)
     return {"created_at": created_at, "summary": summary, "source_count": len(sources["sources"])}
@@ -270,7 +276,7 @@ def initialize(project: Path, project_id: str, official: Path, profile: str) -> 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Create a complete v0.4 CUMCM workspace from official inputs and run intake preflight"
+        description="Create a complete v0.5 CUMCM workspace from official inputs and run intake preflight"
     )
     parser.add_argument("--project", required=True, type=Path, help="new or empty project directory")
     parser.add_argument("--project-id", required=True, help="stable project identifier, for example CUMCM-2026-B")

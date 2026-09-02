@@ -1,27 +1,21 @@
 # Evidence rules
 
-## Evidence strength
+## Three levels
 
-- File existence proves delivery only.
-- Schema validity proves structure only.
-- Keyword presence proves neither implementation nor correctness.
-- An executed command proves that the recorded process ran, not that it implemented the model.
-- A result link proves traceability only when the indexed value matches the executed output locator.
-- A successful solver status does not prove the formulation matches the problem.
-- A heuristic result does not prove global optimality.
-- Non-rejection in a statistical test does not prove equivalence.
-- A sensitivity curve is evidence only when values come from executed runs.
+- Hard invariant / P0: affects truth, provenance, reproducibility, task coverage, or final submission identity. Block it.
+- Warning / P1: affects model strength or reader confidence but does not show the result is false. Keep it visible.
+- Suggestion / P2: optional expression, layout, or extra analysis. Do not gate on it.
 
-## Strong claims
+File existence proves existence. Schema validity proves structure. Successful execution proves a process ran. None proves that the model matches the task. Exact locators and hashes establish identity, not mathematical correctness.
 
-Claims of global optimality, unbiasedness, equivalence, causality, statistical significance, robustness, or reproducibility require claim-specific evidence, an explicit scope, and the relevant certificate. A restricted-class optimum must name the class. Non-rejection is not equivalence. A successful original run is not reproduction.
+Claims of global optimality, equivalence, causality, significance, robustness, or reproducibility require claim-specific evidence and scope. A solver success flag, non-rejection, or original run is insufficient by itself.
 
-## Profiles
+## Change impact
 
-`strict` and `sprint` differ in exploratory breadth and polish. Neither profile may demote official-source hashes, formal run input or claim-bearing output hashes, the exact reviewed final-PDF hash, execution, contradiction, cross-question consistency, result trace, or claim-evidence errors. Editing-stage figure hash drift, optional support-file hash drift, and redundant byte-size mismatches are warnings in both profiles. Sprint may defer alternative-model comparison and nonessential figures only when the corresponding strong claim is also removed or narrowed.
+- `cosmetic`: reader-facing style/layout only; recheck paper and delivery bindings.
+- `local`: recheck the owning component.
+- `semantic`: recheck the owner and affected downstream stages.
+- `claim_changing`: recheck computation, validation, paper, and delivery.
+- `global`: full staged revalidation.
 
-## Conflict handling
-
-When the statement, code, results, figures, and paper disagree, preserve every version, identify the authoritative source for that field, mark the claim unresolved, and return to the earliest stage that introduced the conflict.
-
-Dependent stages become blocked, but their artifacts remain available for comparison and localized rebuilding.
+Do not infer `global` merely because several files changed. Use stage snapshots and canonical handoff digests to find the actual impact. Hard invariants remain checkable even when an unchanged stage snapshot is trusted.

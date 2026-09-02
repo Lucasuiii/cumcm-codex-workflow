@@ -2,177 +2,199 @@
 
 [English](README.md) | 简体中文
 
-一个面向全国大学生数学建模竞赛（CUMCM）的 Codex 原生工作流，强调证据边界、可复现计算和完整交付。
+一个面向真实全国大学生数学建模竞赛的 Codex 工作流：contest-native、evidence-focused、low-friction。
 
-> 当前版本：**v0.4**。本 Skill 仅接受 v0.4 项目合同。通过检查只代表工作流内部一致，不代表数学模型或论文必然正确。
+> 当前版本：**v0.5**。检查通过只证明当前 provenance、执行记录和工作流一致，不代表数学模型必然正确。
 
-## v0.4 要解决什么
+## 1. 为什么升级到 v0.5
 
-- 在一次 Codex 对话中，从用户提供的官方文件直接建立完整竞赛工作区。
-- 让官方来源、建模决策、实际运行的计算、论文主张、图件和交付产物保持可追溯。
-- 在重要决策处停下来等待人工确认，不静默选择关键解释，也不自行批准自己的工作。
-- 在 validation 前，把计算证据交给用户选择的独立任务进行复核。
-- 生成面向评委阅读的 LaTeX/PDF 论文，同时把内部 ID、证据状态、本地路径和工作流术语留在 sidecar 文件中。
-- 将已审阅 PDF、可编辑 LaTeX 源码和计算源码作为三个独立交付项。
-- 依靠磁盘上的项目文件恢复进度，而不是依赖对话历史。
+v0.5 保留 v0.4 最有价值的部分：官方来源保护、真实执行、精确结果定位、claim-bearing output 跟踪、最终 PDF 绑定、决策记录、可复现性和局限说明；同时把不适合比赛节奏的审计负担降下来。
 
-## 工作流
+- 影响真实性的 hard invariant 继续阻断。
+- 模型强度问题降为 warning。
+- 表达和可选优化不进入 gate。
+- paper 优先通过精简 handoff 进入 fresh-context task。
+- MATLAB/Python 按任务择优；同一正式任务默认只做一种正式实现。
+- 已批准且未变化的阶段使用 trusted snapshot，不反复完整复核。
+
+## 2. 架构
 
 ```text
-官方文件
-   |
-   v
-intake -> problem analysis -> model design -> computation
-                                                   |
-                                                   v
-                                      independent review package
-                                                   |
-                                        用户转交给独立复核者
-                                                   |
-                                                   v
-validation -> paper -> delivery -> 用户按需发起最终审计
+orchestrator
+  -> modeling
+  -> computation（MATLAB 或 Python）
+  -> independent validation
+  -> fresh paper task
+  -> delivery
 ```
 
-项目仍由七个阶段组成：`intake`、`problem-analysis`、`model-design`、`computation`、`validation`、`paper` 和 `delivery`。独立复核是 computation 与 validation 之间的阻断门禁，不是一个可以由原对话自行通过的第八阶段。
+这些是职责边界，不是一组细碎 Skill。主 `cumcm-workflow` Skill 负责路由；现有随包 Reviewer Skill 负责 context-separated validation。
 
-| 阶段 | 主要产物 | 人工门禁 |
+正式跨阶段接口只有四个：
+
+```text
+modeling-computation
+computation-validation
+validation-paper
+paper-delivery
+```
+
+## 3. 模式与证据 Gate
+
+默认是 `working`：保护官方输入、要求引用前真实执行、检查源码/结果 provenance 与精确 locator，并禁止伪造数据或审批；探索期不因为缺少最终论文、完整 review 或可选验证而阻塞。
+
+`finalizing` 用于冻结 claim-bearing results，并启用阶段 decision/snapshot、fresh handoff、独立复核、论文/PDF QA 和 delivery binding。
+
+问题按后果分级：
+
+| 等级 | 含义 | Gate |
 |---|---|---|
-| Intake | 官方输入、来源清单和项目状态 | 确认官方输入集合完整 |
-| Problem analysis | 事实、题意解释、假设和能力需求 | 批准题意解释与问题覆盖 |
-| Model design | 模型合同、备选方案、依赖关系和主张范围 | 选择模型并确认其适用边界 |
-| Computation | 可运行代码、保留的运行记录、日志和索引结果 | 批准进入复核的实际计算证据 |
-| Independent review gate | 隐去原结论的复核包和结构化复核结果 | 用户选择独立的人或模型；原对话自审会被拒绝 |
-| Validation | 证据状态、一致性检查、局限性和主张台账 | 确认现有证据实际支持哪些结论 |
-| Paper | 模块化 LaTeX、追溯 sidecar、内容/版式/可见文本检查 | 批准精确版本的论文并关闭严重问题 |
-| Delivery | 编译凭据、最终 PDF、可编辑 LaTeX、计算源码和清单 | 确认官方格式合规性与最终交付包 |
+| Hard invariant / P0 | 真实数据或计算错误、答非所问、关键 claim 无证据、stale provenance、伪造复核或最终版本不一致 | blocking |
+| Warning / P1 | 假设、baseline、模型适配、敏感性或验证方面的 concern | 不阻断 |
+| Suggestion / P2 | 表达、可选图表、排版或额外实验 | 不进入 gate |
 
-如果发现冲突，流程回退到最早负责该问题的阶段。下游文件会保留，但相关阶段必须在修正并重新审阅后才能通过。
+`enforce` 不能靠改 state 绕过：在 finalizing 中，请求阶段及其全部上游都必须为 `passed`，且有当前有效的 accepted decision。
 
-## 在 Codex 对话中开始
+## 4. Fresh Task 与 Handoff
 
-用 Codex 打开本仓库，把官方题目、附件和当年规则放在本机可访问的位置，然后直接提供路径：
+`build_handoff.py` 生成精简的 `HANDOFF.json`：包含 canonical artifact 路径/hash、upstream digest 和阶段 payload，不包含完整 logs、失败 run、debug 记录或旧 review 对话。
 
-```text
-使用 $cumcm-workflow 初始化国赛项目，官方题目和附件在 /absolute/path/to/2026B。
+paper handoff 包含：
+
+- problem/model summary；
+- verified results 与 selected claims；
+- limitations；
+- figure/table 的初步表达计划；
+- 已识别的官方格式文件。
+
+新 task 先读 handoff。任一 canonical 上游产物变化后，handoff 会 stale，必须刷新。
+
+## 5. Independent Validation
+
+第一次 review 是 full 且 context-separated。复核包同时绑定复制材料和当前上游产物。用户记录不同的 originating/reviewer task ref。同模型 fresh-context 仍然相关；task metadata 能增强证据，但不能从密码学上证明 reviewer 真正独立。
+
+Verdict 支持：
+
+- `accepted`
+- `accepted_with_concerns`
+- `revision_required`
+- `inconclusive`
+
+只有开放 P0 才允许 `revision_required`。full review 出现 P0 后，下一次打包默认进行 targeted re-review，覆盖全部原 P0。新增 P1/P2 不阻断；只有有明确证据的新 P0 才能新增 blocking。
+
+## 6. MATLAB 与 Python
+
+新项目默认：
+
+```json
+{"preferred":"matlab","fallback":"python","selection":"auto"}
 ```
 
-当请求明确属于国赛项目时，可以不显式写 `$cumcm-workflow`。Codex 会：
+MATLAB preference 只是同等条件下的 tie-break，不是强制。选择综合考虑数值线性代数、优化、ODE/PDE、信号处理、数据清洗、Excel/CSV、机器学习、toolbox/package、已有代码、实现复杂度和运行稳定性。
 
-1. 只读检查用户提供的文件或目录；
-2. 推断 `CUMCM-2026-B` 这样的稳定项目 ID；
-3. 在用户没有指定目标时选择安全的同级工作区；
-4. 使用绝对路径运行初始化器；
-5. 报告新建工作区，并停在 intake 人工审查门禁。
+一旦选定，只正式实现并运行这一种后端。若无法可靠运行，记录原因并切换 fallback。只有用户明确要求时才建立 Python/MATLAB parity。
 
-只有在来源不存在、年份或题号仍然无法判断、或者目标位置会覆盖现有工作时，Codex 才会询问。初始化过程只复制官方输入，不会编辑或删除原文件，也不会虚构事实、模型、结果、复核或批准。
+每个 official run 记录 selected language、rationale、runtime、dependencies/toolboxes、entry point、source-tree snapshot、command、logs、输入输出、assertions 和 `official_run: true`。正式结果只能引用成功 official run。
 
-维护者和自动化流程也可以直接调用底层初始化器：
+## 7. Paper 与 LaTeX
+
+论文流程改为：
+
+```text
+verified results
+  -> claim selection
+  -> prose/equation/table/figure planning
+  -> generate representations
+  -> paper structure
+  -> LaTeX writing
+  -> rendered PDF QA
+```
+
+不设置最少图数或页数。图表偏少只会提醒重新考虑表达方式，不直接失败。v0.5 模板使用宽松的叙事单元并允许重组，避免每问机械重复“分析—假设—建模—求解”。
+
+最终 QA 检查 caption、table、equation、页面密度、figure placement、字体/缺字、overflow、裁切、留白和跨页连续性。内部 ID、evidence state、本机路径和 workflow 术语仍是可见文本 hard error；精度过高和一句话数字过密是 warning。
+
+Compile receipt 会把已审阅 PDF 绑定到实际编译使用的完整 editable LaTeX source-tree snapshot。
+
+## 8. 初始化、检查与迁移
+
+在 Codex 对话中提供官方本地路径：
+
+```text
+使用 $cumcm-workflow，从 /absolute/path/to/2026B 初始化国赛项目。
+```
+
+维护命令：
 
 ```bash
 python3 .agents/skills/cumcm-workflow/scripts/init_project.py \
-  --project /path/to/new-project \
-  --project-id CUMCM-2026-B \
+  --project /path/to/new-project --project-id CUMCM-2026-B \
   --official /path/to/official-files
-```
 
-## validation 前的独立复核
-
-computation 完成后，Skill 会生成 `validation/independent-review-package/`。其中包含必要的官方输入、题意与模型合同、计算入口、运行记录、实际输出、复核请求以及专用 Reviewer Skill。原任务在此停止，由用户把复核包交给新的任务或人类复核者。
-
-原始复核意见会被逐字保留，`INDEPENDENT_REVIEW_RESULT.json` 则记录复核者身份、范围、发现和结论。在原对话内完成的复核不能通过门禁；使用同一模型的新任务会标记为 correlated，而不是完全 independent。复核通过是一项证据，不是数学正确性的证明。
-
-## 面向评委的论文与交付
-
-内置的 `cumcm-contest-ctex` 模板采用模块化、按问题组织的结构，默认不生成目录。每一问都应形成连贯论证，包括任务解释、机理、模型、算法、结果、验证与局限。
-
-内部追溯信息保存在 `PAPER_TRACEABILITY.json` 等 sidecar 文件中。可见文本检查会阻止内部 ID、证据状态枚举、本地路径和门禁术语进入最终 PDF。小数精度过高或一句话堆叠过多数字时，必须修改，或提供面向读者的明确保留理由。
-
-delivery 必须包含三个可以分别定位的角色：
-
-1. 经审阅的精确版本最终 PDF；
-2. 可编辑 LaTeX 源码，包括入口文件和必要资产；
-3. 计算源码，包括入口和复现说明。
-
-内置模板保持投稿中立。最终合规检查必须依据用户提供的当年官方规则或模板。缺少官方材料时，delivery 会被阻断；这不构成自动联网搜索或代替用户提交的授权。
-
-## 校验与门禁模式
-
-在仓库根目录运行：
-
-```bash
 python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
-  --project /path/to/project \
-  --stage validation \
-  --profile strict \
-  --gate-mode enforce
+  --project /path/to/project --stage validation \
+  --profile strict --gate-mode enforce
+
+python3 .agents/skills/cumcm-workflow/scripts/set_mode.py \
+  --project /path/to/project --mode finalizing
+
+python3 .agents/skills/cumcm-workflow/scripts/migrate_v04_to_v05.py \
+  --source /path/to/v04-workspace --target /path/to/v05-workspace
 ```
 
-报告会写入 `.cumcm/validation-report.json`。
+迁移只复制到新目录，不修改 v0.4 来源；新工作区从 working 开始，旧 run 会标记为 non-official，必须用择优后端重新正式执行后才能 finalizing。
 
-- `strict` 是默认配置。`sprint` 可以减少探索和润色，但不会降低来源、执行、一致性、证据和交付检查。
-- `preflight` 用来区分“自动检查完成，等待人工决定”和“构建失败”。只有剩余问题全部属于人工决定时，才可以以 `gate_status=awaiting_review` 返回零退出码。
-- 一个阶段只有通过 `enforce` 才能视为正式通过。
+局部重验可增加 `--changed <path>` 和 `--impact cosmetic|local|semantic|claim_changing|global`。
 
-两种模式都不是数学正确性、统计有效性或全局最优性的证书。
+## 9. Hard Invariant 与 Provenance
 
-## 收窄后的 SHA-256 政策
+下列问题继续 blocking：
 
-只有确实需要逐字节确认身份时，SHA-256 才作为后台机制使用：
+- 官方输入被修改或 identity 不一致；
+- 把模拟数据冒充观测数据；
+- claim-bearing computation 没有成功 official run；
+- code source snapshot、formal input 或 claim-bearing output 漂移；
+- result locator 错误或索引值与输出不一致；
+- 独立复核包或 stage handoff stale；
+- 伪造人工审批或独立复核；
+- validation/paper 存在开放 P0；
+- 最终 PDF 不可读或版本不一致；
+- PDF 未绑定 approved QA 与 editable source；
+- PDF/LaTeX/计算程序三类交付不完整。
 
-- 用户提供的官方来源；
-- 正式计算输入与承载论文主张的输出；
-- 被明确人工批准覆盖的少量阶段合同；
-- 论文检查和交付实际审阅的最终 PDF。
+accepted decision 会自动生成轻量 stage snapshot。关键产物未变时 snapshot 可 trusted；一旦变化，该阶段及下游 trust 失效。Hard invariant 仍会检查。
 
-普通代码、LaTeX、文档、编辑阶段图件、日志、缓存、临时文件和辅助文件不强制摘要。决策事件保持追加式记录，但不再形成 hash 链。复核者审查的是产物及摘要，而不是 64 字符的摘要字符串。
-
-## 仓库结构
+## 10. 仓库与开发
 
 ```text
 .agents/skills/cumcm-workflow/
-├── SKILL.md                 # 工作流路由与核心不变量
-├── agents/openai.yaml       # Codex 界面信息与调用策略
-├── references/              # 各阶段指南和证据合同
-├── schemas/                 # v0.4 机器可读合同
-├── scripts/                 # 初始化、校验、复核打包和论文检查
+├── SKILL.md
+├── references/
+├── schemas/
+├── scripts/
 └── assets/
-    ├── independent-review/  # Reviewer Skill 与复核请求模板
-    └── latex-template/      # 模块化 CTeX 论文模板
-docs/                        # 架构、工作流合同与 v0.4 设计
-examples/                    # 不含官方竞赛资产的回归合同
-tests/                       # 合同与行为测试
+docs/
+examples/
+tests/
+.github/workflows/ci.yml
 ```
 
-官方赛题、私有试跑资产、生成的工作区和参赛提交文件都不应进入本仓库。
-
-## 开发验收
-
-环境要求：Python 3.10+、`jsonschema>=4.18`。
+开发验收：
 
 ```bash
+python3 -m pip install -r requirements-ci.txt
 python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 -m compileall -q .agents/skills/cumcm-workflow/scripts tests
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   .agents/skills/cumcm-workflow
 ```
 
-第二条命令在环境可用时调用 Codex 内置 Skill 校验器。真正发布论文前仍需进行 XeLaTeX 编译和逐页渲染检查；单元测试通过不等于视觉质量检查通过。
+CI 使用固定依赖，在 Python 3.10 和 3.13 运行。真实论文发布仍需要 XeLaTeX 编译和逐页渲染检查。
 
-## 文档
+## 11. 局限与许可
 
-- [v0.4 设计](docs/v0.4-design.md)
-- [工作流合同](docs/workflow-contract.md)
-- [架构](docs/architecture.md)
-- [局限](docs/limitations.md)
-- [来源说明](docs/provenance.md)
-- [v0.3 历史设计](docs/v0.3-design.md)
+fresh context 能降低上下文污染，但不能保证 reviewer 正确或真正独立。digest 证明 artifact identity，不证明数学有效性。后端选择是确定性指导，不是所有 toolbox/package 的完整 benchmark。视觉与语义质量仍需要具体问题判断。
 
-最终 `model-xray` 审计仍是由用户按需调用的可选环节，不会自动执行。
+历史设计见 [v0.4](docs/v0.4-design.md) 与 [v0.3](docs/v0.3-design.md)；当前设计见 [v0.5](docs/v0.5-design.md)。
 
-## 安全边界与许可
-
-- 不得为了让某个方法看起来更好而虚构经验数据。
-- 没有证书和明确适用范围时，不得把近似解或受限策略类结果称为全局最优。
-- 不得在论文中写入无法追溯到实际运行输出的主张。
-- 不得把 Schema、关键词检查、求解器成功标志或复核通过当作数学正确性的证明。
-
-本仓库是面向可复现 CUMCM 工作的独立设计与实现，采用 [MIT License](LICENSE) 开源。
+本仓库采用 [MIT License](LICENSE)。

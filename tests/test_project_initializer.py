@@ -49,19 +49,21 @@ class ProjectInitializerTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            self.assertIn("intake preflight: awaiting_review", completed.stdout)
+            self.assertIn("intake preflight: working_ready", completed.stdout)
             expected_directories = {
-                ".cumcm/tmp", "problem/official", "analysis", "model", "code", "data",
-                "runs", "results", "validation", "figures", "paper", "delivery",
+                ".cumcm/tmp", ".cumcm/snapshots", "problem/official", "analysis", "model", "code", "data",
+                "runs", "results", "validation", "figures", "paper", "delivery", "handoffs",
             }
             for rel in expected_directories:
                 self.assertTrue((project / rel).is_dir(), rel)
             self.assertFalse((project / "problem" / "official" / ".DS_Store").exists())
 
             state = json.loads((project / ".cumcm" / "state.json").read_text(encoding="utf-8"))
-            self.assertEqual(state["workflow_version"], "0.4.0")
+            self.assertEqual(state["workflow_version"], "0.5.0")
+            self.assertEqual(state["mode"], "working")
+            self.assertEqual(state["implementation"], {"preferred": "matlab", "fallback": "python", "selection": "auto"})
             self.assertEqual(state["current_stage"], "intake")
-            self.assertEqual(state["stages"]["intake"], "awaiting_review")
+            self.assertEqual(state["stages"]["intake"], "in_progress")
             self.assertTrue(all(
                 status == "not_started"
                 for stage, status in state["stages"].items()
@@ -84,12 +86,12 @@ class ProjectInitializerTests(unittest.TestCase):
 
             init_report = json.loads((project / ".cumcm" / "init-report.json").read_text(encoding="utf-8"))
             self.assertEqual(init_report["source_count"], 2)
-            self.assertEqual(init_report["gate_status"], "awaiting_review")
+            self.assertEqual(init_report["gate_status"], "working_ready")
             self.assertEqual(init_report["skipped_source_metadata"], [".DS_Store"])
             validation = json.loads((project / ".cumcm" / "validation-report.json").read_text(encoding="utf-8"))
             self.assertEqual(validation["project_root"], str(project.resolve()))
             self.assertEqual(validation["summary"]["blocking_error_count"], 0)
-            self.assertEqual(validation["summary"]["gate_status"], "awaiting_review")
+            self.assertEqual(validation["summary"]["gate_status"], "working_ready")
 
     def test_initializer_does_not_modify_official_inputs(self):
         module = load_initializer()

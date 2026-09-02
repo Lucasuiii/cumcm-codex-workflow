@@ -1,21 +1,33 @@
-# Stage 4: Computation
+# Computation responsibility
 
-## Required outputs
+## Outcome
 
-- `code/` with runnable source
-- `runs/<run-id>/RUN_MANIFEST.json`
-- `runs/<run-id>/stdout.log` and `stderr.log`
-- `runs/<run-id>/outputs/`
-- `results/RESULTS_INDEX.json`
+Produce one reliable official implementation, successful run evidence, and an exact result index. Working mode may keep exploratory and failed runs, but only a successful `official_run: true` run may support a formal result.
 
-Run the actual code. Record the command, working directory, start and finish times, exit status, environment, dependencies, and seeds. Mark result-affecting inputs as `formal_input` and paper- or claim-bearing machine-readable outputs as `claim_bearing_output`; both require hashes. Mark non-result-affecting inputs as `auxiliary_input`, transient outputs as `intermediate_output`, and troubleshooting artifacts as `diagnostic_output`; these may omit hashes. Prefer the Git commit or source revision for code identity instead of hashing every source file.
+## Choose one backend
 
-Keep raw executed outputs immutable. Create derived tables or summaries separately and record their source run. Do not silently overwrite a previous run.
+Use the project preference (`matlab` preferred, `python` fallback, `auto` selection) as a tie-break, not a mandate. Compare the actual task:
 
-Every indexed result must point to an exact executed JSON value using `path#JSON-pointer`. Keep the unrounded value authoritative; record display rounding separately. A process exit code proves execution only, so preserve assertions, residuals, feasibility checks, or independent calculations appropriate to the model.
+- MATLAB often fits numerical linear algebra, optimization, ODE/PDE, signal processing, and licensed toolbox workflows.
+- Python often fits heterogeneous data cleaning, CSV/Excel automation, machine learning, text/web data, or an existing Python codebase.
+- Availability, required toolbox/package, implementation complexity, existing code, and runtime stability override preference.
 
-When simulation is required, record the generator, parameter source, seed, number of replications, Monte Carlo uncertainty, and the fact that the data are simulated. Never tune simulated data to ensure a preferred method wins.
+Run `scripts/backend_selection.py` when a recorded deterministic selection is useful. Once selected, implement and officially execute that language only. Do not build a second backend for parity unless the user explicitly requests cross-implementation validation. If the selected runtime is unavailable or unreliable, record the reason and switch to the configured fallback.
 
-Approximate optimization must report termination reason, incumbent objective, bound or gap when available, and repeated-seed stability when relevant.
+The mathematical formulation, variable meanings, result IDs, and acceptance checks remain language-neutral.
 
-Hash checks are automatic. Missing or empty run files and hash drift in formal inputs or claim-bearing outputs remain errors. An indexed result may point only to a declared `claim_bearing_output`. A stale byte-size field is a warning. Stdout, stderr, caches, temporary files, and derived presentation files do not need separate hashes unless they become formal evidence or delivery artifacts. Every v0.4 run input and output must declare its `evidence_role`; a missing role is a schema error.
+## Official run evidence
+
+Each `RUN_MANIFEST.json` records:
+
+- selected language, rationale, entry point, runtime, dependencies, and MATLAB toolboxes when applicable;
+- a `sha256-tree-v1` source snapshot covering the executed code;
+- argument array, working directory, timestamps, exit status, stdout/stderr, environment, seeds, and assertions;
+- `formal_input` and `claim_bearing_output` hashes;
+- `official_run: true` only for the run selected to support formal results.
+
+Failed or exploratory runs may remain for local debugging with `official_run: false`; they do not block merely because they failed, and they do not enter handoffs or support claims.
+
+Every result uses an exact `path#JSON-pointer` into a declared claim-bearing JSON output. Keep unrounded values authoritative and display rounding separate. A successful exit code proves execution, not model correctness, so include problem-specific feasibility, residual, conservation, baseline, or stability checks when they matter.
+
+Before validation, build `modeling-computation` and `computation-validation` handoffs. The latter points to canonical official runs/results; the independent reviewer package is the context-separated review payload derived from those artifacts.

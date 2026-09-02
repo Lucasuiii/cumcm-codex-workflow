@@ -14,6 +14,6 @@ For the selected model, define state, decisions, parameters, objective, constrai
 
 Map every capability to a model component. Record each shared quantity's producer, consumers, definition, unit, time basis, transformation, uncertainty propagation, and authoritative artifact in the cross-question ledger. Resolve incompatible reuse before computation.
 
-Plan at least one meaningful check appropriate to the problem: hand-solvable instance, extreme case, independent algorithm, conservation law, out-of-sample test, residual analysis, or perturbation analysis.
+Plan meaningful checks appropriate to the actual claims: hand-solvable instance, extreme case, conservation law, out-of-sample test, residual analysis, or perturbation analysis. An independent second implementation is optional and must not be created merely for MATLAB/Python parity.
 
-Stop for user approval of the selected model and its scope.
+Before computation finalization, obtain approval of the selected model and scope, then build the `modeling-computation` handoff. A computation task reads that handoff rather than the full modeling conversation.

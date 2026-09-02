@@ -1,13 +1,13 @@
-# Limitations
+# 已知限制
 
-- Passing v0.5 does not certify a correct model, statistical design, or global optimum.
-- Context separation reduces contamination but does not prove reviewer independence. Origin/reviewer task references remain user- and tool-recorded evidence.
-- A same-model fresh task remains correlated.
-- Backend selection uses declared task features and runtime availability; it cannot benchmark every MATLAB toolbox or Python package automatically.
-- Source-tree and file digests establish identity, not that code implements the intended equations.
-- Targeted re-review depends on correct P0 classification. A reviewer may miss a severe issue or overstate a concern.
-- Stage impact classification is judgmental. Hard invariants are still checked to limit under-scoping risk.
-- The visible-text checker catches known internal IDs and common local-home paths; it cannot recognize every sensitive string or judge prose quality.
-- The generic LaTeX scaffold is submission-neutral. Current official compliance depends on user-supplied rules/templates.
-- Migration preserves v0.4 artifacts but deliberately does not recertify old runs.
-- Final claim-level `model-xray` auditing remains optional and user-invoked.
+- v0.5 检查通过不代表模型、统计设计或全局最优性已经被证明。
+- Fresh context 能减少上下文污染，但不能证明 reviewer 真正独立；origin/reviewer task ref 仍是用户和工具记录的证据。
+- 同一模型的 fresh task 仍具有相关性，只能标记为 context-separated model correlated。
+- 后端选择依据声明的任务特征、已有代码和运行环境，不能自动 benchmark 所有 MATLAB toolbox 或 Python package。
+- 文件与 source-tree digest 能证明身份一致，不能证明代码实现了预期数学公式。
+- Targeted re-review 依赖正确的 P0 分类；reviewer 可能漏掉严重问题，也可能把普通 concern 误判为 P0。
+- `cosmetic/local/semantic/claim_changing/global` 的影响分类需要判断。Hard invariant 仍会检查，以降低错误缩小范围的风险。
+- 可见文本检查器能识别已知内部 ID 和常见本地 home 路径，但不能发现所有敏感字符串，也不能判断整体文风质量。
+- Generic LaTeX scaffold 与具体年份提交格式无关。正式合规依赖用户提供当年规则或官方模板，并完成逐页视觉 QA。
+- v0.4 迁移保留旧产物，但不会重新认证旧 run；正式 claim 必须重新执行。
+- Claim-level `model-xray` 审计仍是用户按需调用的可选增强，不是默认 gate。

@@ -1,14 +1,17 @@
 # 已知限制
 
-- v0.5 检查通过不代表模型、统计设计或全局最优性已经被证明。
+- v0.6 检查通过不代表模型、统计设计或全局最优性已经被证明。
+- v0.6 不向下兼容，也不提供迁移脚本：旧工作区用官方文件重新初始化。
 - Fresh context 能减少上下文污染，但不能证明 reviewer 真正独立；origin/reviewer task ref 仍是用户和工具记录的证据。
 - 同一模型的 fresh task 仍具有相关性，只能标记为 context-separated model correlated。
 - 后端选择依据声明的任务特征、已有代码和运行环境，不能自动 benchmark 所有 MATLAB toolbox 或 Python package。
 - 文件与 source-tree digest 能证明身份一致，不能证明代码实现了预期数学公式。
 - Targeted re-review 依赖正确的 P0 分类；reviewer 可能漏掉严重问题，也可能把普通 concern 误判为 P0。
-- `cosmetic/local/semantic/claim_changing/global` 的影响分类需要判断。Hard invariant 仍会检查，以降低错误缩小范围的风险。
-- 可见文本检查器能识别已知内部 ID 和常见本地 home 路径，但不能发现所有敏感字符串，也不能判断整体文风质量。
+- `plan_redo.py` 只能沿已记录的 ID 图推断影响。它看不到未被 `--source` 声明的隐式依赖（例如 run 读取了一个没有声明为 input 的文件），也无法判断一处数值变化在数学上是否真的改变结论。确定性检查仍然完整运行，以降低错误缩小范围的风险。
+- 可见文本检查器按 `PREFIX-[Qn-]NNN` 的固定形状识别内部 ID，并识别常见本地 home 路径，但不能发现所有敏感字符串，也不能判断整体文风质量。
 - Generic LaTeX scaffold 与具体年份提交格式无关。官方材料角色依赖 intake metadata：明确的 paper template 会优先采用/适配，规则说明只保留为合规输入；未正确分类的材料会保持 `unclassified`，最终仍需人工确认并逐页 QA。
 - `paper_structure` 与通用间距能改善初始骨架，但不能预测真实长文中的 float 漂移、跨页表格、局部页面过空/过密或图中文字可读性；这些仍需下一次完整 CUMCM PDF 与质量参考进行人工逐页对比。
-- v0.4 迁移保留旧产物，但不会重新认证旧 run；正式 claim 必须重新执行。
-- Claim-level `model-xray` 审计仍是用户按需调用的可选增强，不是默认 gate。
+- 候选比较只能验证形式：恰好一个 selected、有理由、引用了真实运行。它无法判断你的 `discriminating_evidence` 是否真的能区分两个模型，也无法判断被淘汰的候选是不是其实更好——那是数学判断，属于独立复核。
+- 冻结后的 `MODEL_CONTRACT` 可能退化成对已写好代码的事后描述。机器只能检查 `verification_plan` 是否对应到已记录的断言；"这是设计承诺还是代码转录"是 `REVIEW_REQUEST.md` 里点名的失败类，只能由 fresh-context reviewer 判断。
+- `record_compile.py` 的 layout checks 来自编译日志，能发现 overfull box、未定义引用、缺字和字体错误，但发现不了"图中文字太小""这张表放错了位置"这类只有看图才知道的问题。逐页 PNG 已经渲染到 `.cumcm/tmp/pages/`，仍然需要人去看。
+- 记录器只在被调用时记录。绕过 `record_run.py` 直接执行仍然可能产生无证据的结果；检查器只能发现"没有 official run 支撑"，不能发现"你在别处跑过"。

@@ -1,41 +1,122 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/workflow-state.schema.json",
-  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
   "type": "object",
-  "required": ["workflow_version", "mode", "implementation", "current_stage", "stages"],
+  "required": [
+    "workflow_version",
+    "mode",
+    "implementation",
+    "current_stage",
+    "stages"
+  ],
   "properties": {
-    "artifact_type": {"const": "workflow_state"},
-    "workflow_version": {"const": "0.5.0"},
-    "mode": {"enum": ["working", "finalizing"]},
+    "artifact_type": {
+      "const": "workflow_state"
+    },
+    "workflow_version": {
+      "const": "0.6.0"
+    },
+    "mode": {
+      "enum": [
+        "working",
+        "finalizing"
+      ]
+    },
     "implementation": {
       "type": "object",
-      "required": ["preferred", "fallback", "selection"],
+      "required": [
+        "preferred",
+        "fallback",
+        "selection"
+      ],
       "properties": {
-        "preferred": {"enum": ["matlab", "python"]},
-        "fallback": {"enum": ["matlab", "python"]},
-        "selection": {"enum": ["auto", "matlab", "python"]},
-        "matlab_executable": {"type": "string", "minLength": 1}
+        "preferred": {
+          "enum": [
+            "matlab",
+            "python"
+          ]
+        },
+        "fallback": {
+          "enum": [
+            "matlab",
+            "python"
+          ]
+        },
+        "selection": {
+          "enum": [
+            "auto",
+            "matlab",
+            "python"
+          ]
+        },
+        "matlab_executable": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "additionalProperties": false
     },
-    "current_stage": {"enum": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"]},
+    "current_stage": {
+      "enum": [
+        "intake",
+        "problem-analysis",
+        "model-design",
+        "computation",
+        "validation",
+        "paper",
+        "delivery"
+      ]
+    },
     "stages": {
       "type": "object",
-      "required": ["intake", "problem-analysis", "model-design", "computation", "validation", "paper", "delivery"],
+      "required": [
+        "intake",
+        "problem-analysis",
+        "model-design",
+        "computation",
+        "validation",
+        "paper",
+        "delivery"
+      ],
       "additionalProperties": false,
       "properties": {
-        "intake": {"$ref": "#/$defs/stage"},
-        "problem-analysis": {"$ref": "#/$defs/stage"},
-        "model-design": {"$ref": "#/$defs/stage"},
-        "computation": {"$ref": "#/$defs/stage"},
-        "validation": {"$ref": "#/$defs/stage"},
-        "paper": {"$ref": "#/$defs/stage"},
-        "delivery": {"$ref": "#/$defs/stage"}
+        "intake": {
+          "$ref": "#/$defs/stage"
+        },
+        "problem-analysis": {
+          "$ref": "#/$defs/stage"
+        },
+        "model-design": {
+          "$ref": "#/$defs/stage"
+        },
+        "computation": {
+          "$ref": "#/$defs/stage"
+        },
+        "validation": {
+          "$ref": "#/$defs/stage"
+        },
+        "paper": {
+          "$ref": "#/$defs/stage"
+        },
+        "delivery": {
+          "$ref": "#/$defs/stage"
+        }
       }
     }
   },
   "$defs": {
-    "stage": {"enum": ["not_started", "in_progress", "awaiting_review", "passed", "needs_revision", "blocked"]}
+    "stage": {
+      "enum": [
+        "not_started",
+        "in_progress",
+        "passed",
+        "needs_revision"
+      ]
+    }
   }
 }

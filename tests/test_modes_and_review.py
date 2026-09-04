@@ -17,11 +17,11 @@ from backend_selection import detect_matlab_executable, select_backend
 from build_handoff import build as build_handoff
 from build_independent_review_package import build as build_review_package
 from init_latex_paper import commit_staged_tree
-from migrate_v04_to_v05 import migrate
 from paper_visible_text_check import inspect_text
-from test_v03_paper_quality import build_valid_v04_project
+from test_paper_pipeline import build_paper_ready_project
 from test_workflow_core import build_valid_project, write_json
-from workflow_checks import check_project, plan_scoped_revalidation
+from workflow_checks import check_project
+from plan_redo import build_plan
 
 
 def review_finding(finding_id: str, severity: str, status: str) -> dict:
@@ -36,7 +36,7 @@ def review_finding(finding_id: str, severity: str, status: str) -> dict:
     }
 
 
-class ContestNativeV05Tests(unittest.TestCase):
+class ModesAndReviewTests(unittest.TestCase):
     def test_enforce_cannot_bypass_stage_state_or_decisions(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -46,7 +46,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             state["mode"] = "finalizing"
             state["stages"]["validation"] = "in_progress"
             write_json(root, ".cumcm/state.json", state)
-            findings, summary = check_project(root, "validation", "strict", "enforce")
+            findings, summary = check_project(root, "validation", "enforce")
             rules = {item.rule_id for item in findings}
             self.assertIn("STATE-E013", rules)
             self.assertIn("DECISION-E001", rules)
@@ -56,13 +56,13 @@ class ContestNativeV05Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_project(root)
-            _, working = check_project(root, "validation", "strict", "enforce")
+            _, working = check_project(root, "validation", "enforce")
             self.assertEqual(working["gate_status"], "working_ready")
             self.assertEqual(working["blocking_error_count"], 0)
             state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
             state["mode"] = "finalizing"
             write_json(root, ".cumcm/state.json", state)
-            findings, finalizing = check_project(root, "validation", "strict", "enforce")
+            findings, finalizing = check_project(root, "validation", "enforce")
             self.assertIn("PROJECT-E001", {item.rule_id for item in findings})
             self.assertGreater(finalizing["blocking_error_count"], 0)
 
@@ -75,7 +75,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             result["verdict"] = "accepted_with_concerns"
             result["findings"] = [review_finding("REV-P1-001", "P1", "open")]
             write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", result)
-            findings, summary = check_project(root, "validation", "strict", "enforce")
+            findings, summary = check_project(root, "validation", "enforce")
             self.assertIn("IREVIEW-W001", {item.rule_id for item in findings})
             self.assertNotIn("IREVIEW-E012", {item.rule_id for item in findings})
             self.assertEqual(summary["blocking_error_count"], 0)
@@ -89,7 +89,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             result["verdict"] = "revision_required"
             result["findings"] = [review_finding("REV-P0-001", "P0", "open")]
             write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", result)
-            findings, summary = check_project(root, "validation", "strict", "enforce")
+            findings, summary = check_project(root, "validation", "enforce")
             self.assertIn("IREVIEW-E012", {item.rule_id for item in findings})
             self.assertGreater(summary["blocking_error_count"], 0)
 
@@ -137,7 +137,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             })
             result["reviewer_context"]["task_ref"] = "fixture-targeted-task"
             write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", result)
-            findings, summary = check_project(root, "validation", "strict", "enforce")
+            findings, summary = check_project(root, "validation", "enforce")
             rules = {item.rule_id for item in findings}
             self.assertNotIn("IREVIEW-E024", rules)
             self.assertNotIn("IREVIEW-E012", rules)
@@ -146,18 +146,18 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_stage_snapshot_trust_ends_when_code_changes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
-            _, before = check_project(root, "delivery", "strict")
-            self.assertIn("computation", before["trusted_snapshots"])
+            build_paper_ready_project(root)
+            _, before = check_project(root, "delivery")
+            self.assertIn("computation", before["stages_with_current_decision"])
             (root / "code" / "solve.py").write_text("print('changed after official run')\n", encoding="utf-8")
-            findings, after = check_project(root, "delivery", "strict")
-            self.assertNotIn("computation", after["trusted_snapshots"])
+            findings, after = check_project(root, "delivery")
+            self.assertNotIn("computation", after["stages_with_current_decision"])
             self.assertIn("RUN-E020", {item.rule_id for item in findings})
 
     def test_revision_requested_invalidates_stage_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             completed = __import__("subprocess").run(
                 [sys.executable, str(SCRIPTS / "record_decision.py"), "--project", str(root),
                  "--stage", "computation", "--decision", "revision_requested",
@@ -167,26 +167,39 @@ class ContestNativeV05Tests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertFalse((root / ".cumcm/snapshots/computation.json").exists())
-            _, summary = check_project(root, "delivery", "strict")
-            self.assertNotIn("computation", summary["trusted_snapshots"])
+            _, summary = check_project(root, "delivery")
+            self.assertNotIn("computation", summary["stages_with_current_decision"])
 
     def test_finalizing_requires_derived_stage_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             (root / ".cumcm/snapshots/validation.json").unlink()
-            findings, summary = check_project(root, "delivery", "strict")
+            findings, summary = check_project(root, "delivery")
             self.assertIn("DECISION-E014", {item.rule_id for item in findings})
             self.assertGreater(summary["blocking_error_count"], 0)
 
-    def test_scoped_revalidation_does_not_default_to_full_workspace(self):
-        local = plan_scoped_revalidation(["paper/sections/q1.tex"], "local", "delivery")
-        semantic = plan_scoped_revalidation(["model/MODEL_CONTRACT.json"], "semantic", "delivery")
-        cosmetic = plan_scoped_revalidation(["paper/main.tex"], "cosmetic", "delivery")
-        self.assertEqual(local["stages"], ["paper"])
-        self.assertEqual(semantic["stages"], ["model-design", "computation", "validation", "paper", "delivery"])
-        self.assertEqual(cosmetic["stages"], ["paper", "delivery"])
-        self.assertFalse(local["full_workspace_audit"])
+    def test_redo_plan_names_the_actual_work_a_change_invalidates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_paper_ready_project(root)
+            plan = build_plan(root, ["code/solve.py"])
+            self.assertEqual(plan["stale_official_runs"], ["RUN-Q1-001"])
+            self.assertEqual(plan["stale_results"], ["RES-Q1-001"])
+            self.assertEqual(plan["stale_claims"], ["CLM-Q1-001"])
+            self.assertIn("computation", plan["actions"])
+            self.assertIn("validation", plan["actions"])
+            self.assertIn("delivery", plan["actions"])
+
+    def test_redo_plan_leaves_unrelated_work_alone(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_paper_ready_project(root)
+            plan = build_plan(root, ["notes/scratch.md"])
+            self.assertEqual(plan["stale_official_runs"], [])
+            self.assertEqual(plan["stale_claims"], [])
+            self.assertEqual(plan["actions"], {})
+            self.assertIn("RUN-Q1-001", plan["unaffected"]["computation"])
 
     def test_matlab_is_selected_for_matlab_fit_on_a_tie_break(self):
         result = select_backend(
@@ -252,18 +265,18 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_paper_handoff_stale_detection(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "validation" / "CLAIM_LEDGER.json"
             claims = json.loads(path.read_text(encoding="utf-8"))
             claims["claims"][0]["text"] += " Changed upstream."
             write_json(root, "validation/CLAIM_LEDGER.json", claims)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("HANDOFF-E003", {item.rule_id for item in findings})
 
     def test_paper_handoff_excludes_full_run_history(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             handoff = json.loads((root / "handoffs" / "validation-paper" / "HANDOFF.json").read_text(encoding="utf-8"))
             self.assertFalse(any(item["path"].startswith("runs/") for item in handoff["canonical_artifacts"]))
             self.assertEqual(
@@ -275,7 +288,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_paper_handoff_uses_real_limitations_and_proactive_representation_candidates(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             claims_path = root / "validation" / "CLAIM_LEDGER.json"
             claims = json.loads(claims_path.read_text(encoding="utf-8"))
             claims["claims"][0]["text"] = "The cost trend compares multiple policies over time."
@@ -310,7 +323,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_targeted_review_preserves_open_p1_lineage_and_filters_unsupported_claim_limits(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             current_path = root / "validation/INDEPENDENT_REVIEW_RESULT.json"
             full = json.loads(current_path.read_text(encoding="utf-8"))
             full.update({
@@ -365,7 +378,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_paper_delivery_handoff_is_self_contained_for_fresh_delivery(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             handoff = json.loads((root / "handoffs/paper-delivery/HANDOFF.json").read_text(encoding="utf-8"))
             payload = handoff["payload"]
             self.assertEqual(payload["approved_pdf"]["path"], "paper/paper.pdf")
@@ -379,7 +392,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_paper_delivery_handoff_rejects_stale_editable_source_binding(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             (root / "paper/main.tex").write_text("% changed after compile\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "compile-bound editable LaTeX"):
                 build_handoff(root, "paper-delivery")
@@ -387,7 +400,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_paper_delivery_handoff_carries_classified_official_rules(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             rules_path = root / "problem/official/submission-rules.pdf"
             rules_path.write_bytes(b"official submission rules")
             manifest_path = root / "problem/SOURCE_MANIFEST.json"
@@ -417,7 +430,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_all_canonical_consumers_reject_a_nonofficial_referenced_run(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             run_path = root / "runs/RUN-Q1-001/RUN_MANIFEST.json"
             run = json.loads(run_path.read_text(encoding="utf-8"))
             run["official_run"] = False
@@ -475,7 +488,7 @@ class ContestNativeV05Tests(unittest.TestCase):
     def test_handoffs_bind_only_canonical_downstream_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             modeling = json.loads((root / "handoffs" / "modeling-computation" / "HANDOFF.json").read_text(encoding="utf-8"))
             computation = json.loads((root / "handoffs" / "computation-validation" / "HANDOFF.json").read_text(encoding="utf-8"))
             modeling_paths = {item["path"] for item in modeling["canonical_artifacts"]}
@@ -490,7 +503,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             root = Path(temp)
             build_valid_project(root)
             (root / "code" / "solve.py").write_text("print('stale')\n", encoding="utf-8")
-            findings, _ = check_project(root, "computation", "strict")
+            findings, _ = check_project(root, "computation")
             self.assertIn("RUN-E020", {item.rule_id for item in findings})
 
     def test_review_package_detects_upstream_change(self):
@@ -503,7 +516,7 @@ class ContestNativeV05Tests(unittest.TestCase):
             (root / "model" / "VALIDATION_PLAN.md").write_text("# Validation plan\n", encoding="utf-8")
             build_review_package(root)
             (root / "code" / "solve.py").write_text("print('changed upstream')\n", encoding="utf-8")
-            findings, _ = check_project(root, "validation", "strict")
+            findings, _ = check_project(root, "validation")
             self.assertIn("IREVIEW-E025", {item.rule_id for item in findings})
 
     def test_visible_local_paths_cover_unix_and_windows_home_directories(self):
@@ -533,38 +546,3 @@ class ContestNativeV05Tests(unittest.TestCase):
                     commit_staged_tree(staging, paper)
             self.assertEqual(list(paper.iterdir()), [])
 
-    def test_v04_migration_preserves_source_and_requires_official_rerun(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            source = root / "v04"
-            target = root / "v05"
-            source.mkdir()
-            build_valid_project(source)
-            for path in source.rglob("*.json"):
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, dict) and data.get("schema_version") == "0.5.0":
-                    data["schema_version"] = "0.4.0"
-                    if isinstance(data.get("producer"), dict):
-                        data["producer"]["version"] = "0.4.0"
-                    if data.get("artifact_type") == "workflow_state":
-                        data["workflow_version"] = "0.4.0"
-                        data.pop("mode", None)
-                        data.pop("implementation", None)
-                    if data.get("artifact_type") == "run_manifest":
-                        data.pop("official_run", None)
-                        data.pop("implementation", None)
-                    write_json(source, path.relative_to(source).as_posix(), data)
-            original_code = (source / "code" / "solve.py").read_bytes()
-            report_path = migrate(source, target)
-            state = json.loads((target / ".cumcm/state.json").read_text(encoding="utf-8"))
-            run = json.loads((target / "runs/RUN-Q1-001/RUN_MANIFEST.json").read_text(encoding="utf-8"))
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            self.assertEqual(state["workflow_version"], "0.5.0")
-            self.assertEqual(state["mode"], "working")
-            self.assertFalse(run["official_run"])
-            self.assertFalse(report["official_runs_recertified"])
-            self.assertEqual((source / "code" / "solve.py").read_bytes(), original_code)
-
-
-if __name__ == "__main__":
-    unittest.main()

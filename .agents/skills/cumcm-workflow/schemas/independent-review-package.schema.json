@@ -1,48 +1,168 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/independent-review-package.schema.json",
-  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
   "type": "object",
-  "required": ["package_root", "review_skill_path", "review_request_path", "review_mode", "upstream_digest", "package_digest", "conclusions_withheld", "files", "reviewer_selection"],
+  "required": [
+    "package_root",
+    "review_skill_path",
+    "review_request_path",
+    "review_mode",
+    "upstream_digest",
+    "package_digest",
+    "files",
+    "reviewer_selection",
+    "context_excluded"
+  ],
   "properties": {
-    "artifact_type": {"const": "independent_review_package"},
-    "package_root": {"type": "string", "minLength": 1},
-    "review_skill_path": {"type": "string", "minLength": 1},
-    "review_request_path": {"type": "string", "minLength": 1},
-    "review_mode": {"enum": ["full", "targeted"]},
-    "previous_review_path": {"type": ["string", "null"]},
-    "target_finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "upstream_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "package_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "conclusions_withheld": {"const": true},
+    "artifact_type": {
+      "const": "independent_review_package"
+    },
+    "package_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_skill_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_request_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_mode": {
+      "enum": [
+        "full",
+        "targeted"
+      ]
+    },
+    "previous_review_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "target_finding_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "upstream_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "package_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "files": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["path", "role", "size", "sha256"],
+        "required": [
+          "path",
+          "role",
+          "size",
+          "sha256"
+        ],
         "properties": {
-          "path": {"type": "string", "minLength": 1},
-          "source_path": {"type": "string", "minLength": 1},
-          "role": {"enum": ["official_input", "problem_contract", "model_contract", "computation_source", "run_record", "executed_output", "review_instruction"]},
-          "size": {"type": "integer", "minimum": 1}
-          ,"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": [
+              "official_input",
+              "problem_contract",
+              "model_contract",
+              "computation_source",
+              "run_record",
+              "executed_output",
+              "review_instruction"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         },
         "additionalProperties": false
       }
     },
     "reviewer_selection": {
       "type": "object",
-      "required": ["status", "selected_by", "reviewer", "model", "originating_task_ref", "task_ref"],
+      "required": [
+        "status",
+        "selected_by",
+        "reviewer",
+        "model",
+        "originating_task_ref",
+        "task_ref"
+      ],
       "properties": {
-        "status": {"enum": ["unreviewed", "user_confirmed"]},
-        "selected_by": {"type": ["string", "null"]},
-        "reviewer": {"type": ["string", "null"]},
-        "model": {"type": ["string", "null"]},
-        "originating_task_ref": {"type": ["string", "null"]},
-        "task_ref": {"type": ["string", "null"]}
+        "status": {
+          "enum": [
+            "unreviewed",
+            "user_confirmed"
+          ]
+        },
+        "selected_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reviewer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "originating_task_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false
+    },
+    "context_excluded": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Prior reasoning the packager physically excluded from this package."
     }
   }
 }

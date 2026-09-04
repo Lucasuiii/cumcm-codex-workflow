@@ -59,7 +59,7 @@ class ProjectInitializerTests(unittest.TestCase):
             self.assertFalse((project / "problem" / "official" / ".DS_Store").exists())
 
             state = json.loads((project / ".cumcm" / "state.json").read_text(encoding="utf-8"))
-            self.assertEqual(state["workflow_version"], "0.5.0")
+            self.assertEqual(state["workflow_version"], "0.6.0")
             self.assertEqual(state["mode"], "working")
             self.assertEqual(state["implementation"], {"preferred": "matlab", "fallback": "python", "selection": "auto"})
             self.assertEqual(state["current_stage"], "intake")
@@ -102,7 +102,7 @@ class ProjectInitializerTests(unittest.TestCase):
             source = official / "problem.pdf"
             source.write_bytes(b"immutable official bytes")
             before = source.read_bytes()
-            module.initialize(root / "project", "TEST-2026-A", official, "strict")
+            module.initialize(root / "project", "TEST-2026-A", official)
             self.assertEqual(source.read_bytes(), before)
 
     def test_existing_nonempty_target_is_rejected_without_changes(self):
@@ -117,7 +117,7 @@ class ProjectInitializerTests(unittest.TestCase):
             retained = project / "keep.txt"
             retained.write_text("keep", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
-                module.initialize(project, "TEST-2026-A", official, "strict")
+                module.initialize(project, "TEST-2026-A", official)
             self.assertEqual(retained.read_text(encoding="utf-8"), "keep")
             self.assertEqual(list(project.iterdir()), [retained])
 
@@ -129,11 +129,10 @@ class ProjectInitializerTests(unittest.TestCase):
             official.write_text("problem", encoding="utf-8")
             project = root / "project"
             project.mkdir()
-            result = module.initialize(project, "TEST-2026-A", official, "sprint")
+            result = module.initialize(project, "TEST-2026-A", official)
             self.assertEqual(result["source_count"], 1)
             self.assertTrue((project / "problem" / "official" / "problem.txt").is_file())
             report = json.loads((project / ".cumcm" / "init-report.json").read_text(encoding="utf-8"))
-            self.assertEqual(report["profile"], "sprint")
 
     def test_empty_official_directory_is_rejected_without_project(self):
         module = load_initializer()
@@ -143,7 +142,7 @@ class ProjectInitializerTests(unittest.TestCase):
             official.mkdir()
             project = root / "project"
             with self.assertRaisesRegex(ValueError, "no usable files"):
-                module.initialize(project, "TEST-2026-A", official, "strict")
+                module.initialize(project, "TEST-2026-A", official)
             self.assertFalse(project.exists())
 
     def test_symlink_in_official_tree_is_rejected(self):
@@ -158,7 +157,7 @@ class ProjectInitializerTests(unittest.TestCase):
             (official / "linked.txt").symlink_to(outside)
             project = root / "project"
             with self.assertRaisesRegex(ValueError, "symlinks"):
-                module.initialize(project, "TEST-2026-A", official, "strict")
+                module.initialize(project, "TEST-2026-A", official)
             self.assertFalse(project.exists())
 
 

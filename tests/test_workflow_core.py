@@ -35,12 +35,11 @@ def review(decision: str = "accepted") -> dict:
 
 def envelope(kind: str) -> dict:
     return {
-        "schema_version": "0.5.0",
+        "schema_version": "0.6.0",
         "artifact_type": kind,
         "project_id": "SYNTHETIC-2024-B",
         "updated_at": "2026-08-30T12:00:00Z",
-        "producer": {"kind": "script", "name": "test-fixture", "version": "0.5.0"},
-        "review": review(),
+        "producer": {"kind": "script", "name": "test-fixture", "version": "0.6.0"},
     }
 
 
@@ -85,7 +84,7 @@ def build_valid_project(root: Path) -> None:
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.5.0",
+            "workflow_version": "0.6.0",
             "mode": "working",
             "implementation": {"preferred": "matlab", "fallback": "python", "selection": "auto"},
             "current_stage": "validation",
@@ -178,7 +177,22 @@ def build_valid_project(root: Path) -> None:
             "method": "complete enumeration",
             "scope": "fixed homogeneous policies only; excludes feedback policies",
             "verification_plan": ["compare enumerated count with class cardinality"],
-            "alternatives_considered": ["feedback-policy dynamic program"],
+            "candidates": [
+                {
+                    "candidate_id": "CAND-Q1-ENUM", "method": "complete enumeration",
+                    "why_considered": "the declared policy class is finite and small",
+                    "discriminating_evidence": ["cost of the best fixed policy versus the dynamic-program bound"],
+                    "status": "selected", "evaluation_run_ids": ["RUN-Q1-001"],
+                    "decision_rationale": "enumeration reaches the same cost as the bound at a fraction of the runtime",
+                },
+                {
+                    "candidate_id": "CAND-Q1-DP", "method": "feedback-policy dynamic program",
+                    "why_considered": "feedback policies could in principle beat any fixed policy",
+                    "discriminating_evidence": ["whether the DP value is strictly below the enumerated minimum"],
+                    "status": "rejected", "evaluation_run_ids": ["RUN-Q1-001"],
+                    "decision_rationale": "the DP value matched the enumerated minimum, so feedback buys nothing here",
+                },
+            ],
             "strong_claims": [],
         }
     ]
@@ -195,6 +209,7 @@ def build_valid_project(root: Path) -> None:
             "purpose": "synthetic restricted-policy regression",
             "subproblem_id": "Q1",
             "capability_ids": ["CAP-Q1-001"],
+            "candidate_ids": ["CAND-Q1-ENUM", "CAND-Q1-DP"],
             "argv": ["python3", "code/solve.py"],
             "working_directory": ".",
             "started_at": "2026-08-30T12:00:00Z",
@@ -289,7 +304,7 @@ def build_valid_project(root: Path) -> None:
             "target_finding_ids": [],
             "upstream_digest": "0" * 64,
             "package_digest": package_digest,
-            "conclusions_withheld": True,
+            "context_excluded": ["debug_history", "failed_runs", "originating_task_transcript", "prior_review_prose"],
             "files": package_files,
             "reviewer_selection": {
                 "status": "user_confirmed",
@@ -339,8 +354,6 @@ def build_valid_project(root: Path) -> None:
             "sha256": digest(figure_bytes),
             "result_ids": ["RES-Q1-001"],
             "run_ids": ["RUN-Q1-001"],
-            "axes": [{"name": "policy", "unit": "category"}],
-            "transformations": [],
             "caption_claims": ["Restricted-class comparison only."],
             "paper_location": "Results",
             "visual_review": review(),
@@ -378,7 +391,6 @@ def build_valid_project(root: Path) -> None:
     delivery = envelope("delivery_manifest")
     delivery.update(
         {
-            "profile": "strict",
             "source_policy": {"mode": "user_supplied_only", "network_lookup_performed": False, "missing_user_materials": []},
             "deliverables": {
                 "final_pdf": {"path": "paper/paper.pdf", "entrypoint": "paper/paper.pdf", "editable": False},
@@ -410,8 +422,8 @@ def build_valid_project(root: Path) -> None:
     write_json(root, "delivery/DELIVERY_MANIFEST.json", delivery)
 
 class WorkflowCoreTests(unittest.TestCase):
-    def run_check(self, root: Path, profile: str = "strict"):
-        findings, summary = check_project(root, "validation", profile)
+    def run_check(self, root: Path):
+        findings, summary = check_project(root, "validation")
         return findings, summary
 
     def test_complete_project_passes_without_errors(self):
@@ -439,7 +451,6 @@ class WorkflowCoreTests(unittest.TestCase):
             "paper-plan.schema.json",
             "paper-quality-report.schema.json",
             "paper-revision-log.schema.json",
-            "paper-traceability.schema.json",
             "paper-visible-text-report.schema.json",
             "problem-facts.schema.json",
             "results-index.schema.json",
@@ -466,8 +477,6 @@ class WorkflowCoreTests(unittest.TestCase):
                     str(root),
                     "--stage",
                     "validation",
-                    "--profile",
-                    "strict",
                 ],
                 check=False,
                 capture_output=True,
@@ -670,7 +679,7 @@ class WorkflowCoreTests(unittest.TestCase):
             root = Path(temp)
             build_valid_project(root)
             (root / "figures" / "policy-cost.png").write_bytes(b"edited figure bytes")
-            findings, _ = check_project(root, "validation", "strict")
+            findings, _ = check_project(root, "validation")
             finding_by_rule = {item.rule_id: item for item in findings}
             self.assertEqual(finding_by_rule["FIGURE-W011"].severity, "warning")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
@@ -776,7 +785,7 @@ class WorkflowCoreTests(unittest.TestCase):
                 "validation",
             ):
                 with self.subTest(stage=stage):
-                    findings, _ = check_project(root, stage, "strict")
+                    findings, _ = check_project(root, stage)
                     self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_cross_question_unit_conflict_is_an_error(self):

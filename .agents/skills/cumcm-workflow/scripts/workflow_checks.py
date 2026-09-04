@@ -7,7 +7,6 @@ and declared relationships. They do not establish mathematical correctness.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -17,7 +16,7 @@ from typing import Any, Iterable
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
-from provenance import digest_records, sha256_file, snapshot_matches, tree_snapshot
+from provenance import digest_records, sha256_file, snapshot_matches
 
 
 STAGES = [
@@ -32,10 +31,8 @@ STAGES = [
 STAGE_STATUSES = {
     "not_started",
     "in_progress",
-    "awaiting_review",
     "passed",
     "needs_revision",
-    "blocked",
 }
 EVIDENCE_STATES = {
     "not_checked",
@@ -48,11 +45,15 @@ EVIDENCE_STATES = {
     "not_applicable",
 }
 REVIEW_DECISIONS = {"unreviewed", "accepted", "accepted_with_concerns", "revision_requested"}
-PROFILES = {"strict", "sprint"}
 GATE_MODES = {"preflight", "enforce"}
-WORKFLOW_VERSION = "0.5.0"
+WORKFLOW_VERSION = "0.6.0"
 WORKFLOW_MODES = {"working", "finalizing"}
-CHANGE_IMPACTS = {"cosmetic", "local", "semantic", "claim_changing", "global"}
+REQUIRED_CONTEXT_EXCLUSIONS = {
+    "originating_task_transcript",
+    "debug_history",
+    "failed_runs",
+    "prior_review_prose",
+}
 
 CONTRACT_PATHS = {
     "state": ".cumcm/state.json",
@@ -70,7 +71,6 @@ CONTRACT_PATHS = {
     "latex_template": "paper/LATEX_TEMPLATE_MANIFEST.json",
     "paper_quality": "paper/PAPER_QUALITY_REPORT.json",
     "paper_revisions": "paper/PAPER_REVISION_LOG.json",
-    "paper_traceability": "paper/PAPER_TRACEABILITY.json",
     "paper_visible_text": "paper/PAPER_VISIBLE_TEXT_REPORT.json",
     "delivery": "delivery/DELIVERY_MANIFEST.json",
     "compile_receipt": "delivery/COMPILE_RECEIPT.json",
@@ -83,29 +83,43 @@ CONTRACT_PATHS = {
 STAGE_CONTRACTS = {
     "intake": ("state", "sources"),
     "problem-analysis": ("state", "sources", "facts", "capabilities"),
-    "model-design": (
-        "state",
-        "sources",
-        "facts",
-        "capabilities",
-        "model",
-        "cross_question",
+    "model-design": ("state", "sources", "facts", "capabilities", "model"),
+    "computation": ("state", "sources", "facts", "capabilities", "model", "results"),
+    "validation": (
+        "state", "sources", "facts", "capabilities", "model", "results",
+        "independent_review_package", "independent_review_result", "claims",
     ),
-    "computation": (
-        "state",
-        "sources",
-        "facts",
-        "capabilities",
-        "model",
-        "cross_question",
-        "results",
+    "paper": (
+        "state", "sources", "facts", "capabilities", "model", "results",
+        "independent_review_package", "independent_review_result", "claims",
+        "paper_plan", "latex_template", "paper_quality", "paper_visible_text",
     ),
-    "validation": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims"),
-    "paper": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_traceability", "paper_visible_text"),
-    "delivery": ("state", "sources", "facts", "capabilities", "model", "cross_question", "results", "independent_review_package", "independent_review_result", "claims", "figures", "paper_plan", "latex_template", "paper_quality", "paper_traceability", "paper_visible_text", "delivery", "compile_receipt"),
+    "delivery": (
+        "state", "sources", "facts", "capabilities", "model", "results",
+        "independent_review_package", "independent_review_result", "claims",
+        "paper_plan", "latex_template", "paper_quality", "paper_visible_text",
+        "delivery", "compile_receipt",
+    ),
 }
 
-PAPER_CONTRACTS = ("paper_plan", "latex_template", "paper_quality", "paper_traceability", "paper_visible_text")
+# Contracts that only a frozen (finalizing) project must carry.
+FINALIZING_CONTRACTS = {
+    "model-design": ("cross_question",),
+    "computation": ("cross_question",),
+    "validation": ("cross_question",),
+    "paper": ("cross_question",),
+    "delivery": ("cross_question",),
+}
+
+# Contracts that are never required but are checked whenever the project has them,
+# from the stage where they first make sense.
+OPTIONAL_CONTRACTS = {
+    "cross_question": "model-design",
+    "figures": "validation",
+    "paper_revisions": "paper",
+}
+
+PAPER_CONTRACTS = ("paper_plan", "latex_template", "paper_quality", "paper_visible_text")
 
 SCHEMA_FILES = {
     "state": "workflow-state.schema.json",
@@ -123,7 +137,6 @@ SCHEMA_FILES = {
     "latex_template": "latex-template-manifest.schema.json",
     "paper_quality": "paper-quality-report.schema.json",
     "paper_revisions": "paper-revision-log.schema.json",
-    "paper_traceability": "paper-traceability.schema.json",
     "paper_visible_text": "paper-visible-text-report.schema.json",
     "delivery": "delivery-manifest.schema.json",
     "compile_receipt": "compile-receipt.schema.json",
@@ -348,23 +361,10 @@ def check_envelope(data: Any, expected_type: str, stage: str, path: str) -> list
         )
     if not nonempty(data.get("project_id")):
         findings.append(finding("ENV-E004", "error", "structural", stage, path, "project_id is required"))
-    review = data.get("review")
-    if review is not None and (not isinstance(review, dict) or review.get("decision") not in REVIEW_DECISIONS):
-        findings.append(
-            finding(
-                "ENV-E005",
-                "error",
-                "semantic",
-                stage,
-                path,
-                "optional review.decision must use the workflow review vocabulary",
-                pointer="/review/decision",
-            )
-        )
     return findings
 
 
-def check_state(data: Any, path: str) -> list[Finding]:
+def check_state(data: Any, path: str, mode: str = "working") -> list[Finding]:
     findings = check_envelope(data, "workflow_state", "intake", path)
     if not isinstance(data, dict):
         return findings
@@ -401,13 +401,15 @@ def check_state(data: Any, path: str) -> list[Finding]:
         index = STAGES.index(current)
         for prior in STAGES[:index]:
             if stages.get(prior) != "passed":
+                severity = "error" if mode == "finalizing" else "warning"
                 findings.append(
-                    finding("STATE-E007", "error", "structural", prior, path, f"prior stage must pass before {current}: {prior}")
+                    finding("STATE-E007", severity, "structural", prior, path, f"prior stage must pass before {current}: {prior}")
                 )
         for later in STAGES[index + 1 :]:
-            if stages.get(later) in {"in_progress", "awaiting_review", "passed"}:
+            # needs_revision downstream is the normal state after reopening an upstream stage.
+            if stages.get(later) == "passed":
                 findings.append(
-                    finding("STATE-E008", "error", "structural", later, path, f"later stage active before {current} passes: {later}")
+                    finding("STATE-E008", "error", "structural", later, path, f"downstream stage is still marked passed while {current} is open: {later}")
                 )
     return findings
 
@@ -515,15 +517,21 @@ def check_capabilities(data: Any, root: Path, fact_ids: set[str], subproblem_ids
     return findings
 
 
-def check_model(data: Any, capability_ids: set[str], path: str, profile: str) -> list[Finding]:
+DRAFT_MODEL_FIELDS = ("capability_ids", "method", "scope")
+FROZEN_MODEL_FIELDS = ("capability_ids", "variables", "inputs", "outputs", "method", "scope", "verification_plan")
+
+
+def check_model(data: Any, capability_ids: set[str], path: str, mode: str) -> list[Finding]:
+    """Working mode accepts a draft contract; finalizing requires the frozen one."""
     findings = check_envelope(data, "model_contract", "model-design", path)
     if not isinstance(data, dict):
         return findings
+    frozen = mode == "finalizing"
     components = data.get("components")
     findings.extend(
         require_fields(
             components,
-            ("capability_ids", "variables", "inputs", "outputs", "method", "scope", "verification_plan"),
+            FROZEN_MODEL_FIELDS if frozen else DRAFT_MODEL_FIELDS,
             ("model_id",),
             "MODEL",
             "model-design",
@@ -540,11 +548,139 @@ def check_model(data: Any, capability_ids: set[str], path: str, profile: str) ->
                 findings.append(finding("MODEL-E006", "error", "structural", "model-design", path, f"{ident} owns unknown capability: {capability_id}", related_ids=[ident, str(capability_id)]))
             else:
                 owned.add(capability_id)
-        if profile == "strict" and not as_list(component.get("alternatives_considered")):
-            findings.append(finding("MODEL-E007", "warning", "semantic", "model-design", path, f"strict profile has no recorded alternative for {ident}", related_ids=[ident]))
+        if frozen and len(as_list(component.get("candidates"))) < 2:
+            findings.append(finding("MODEL-W007", "warning", "semantic", "model-design", path, f"frozen model compares fewer than two candidates for {ident}", related_ids=[ident]))
     missing = sorted(capability_ids - owned)
     if missing:
-        findings.append(finding("MODEL-E008", "error", "semantic", "model-design", path, f"capabilities without model ownership: {', '.join(missing)}", related_ids=missing))
+        # Ownership is the answer-the-question invariant; it blocks only once the model is frozen.
+        severity = "error" if frozen else "warning"
+        findings.append(finding("MODEL-E008", severity, "semantic", "model-design", path, f"capabilities without model ownership: {', '.join(missing)}", related_ids=missing))
+    return findings
+
+
+def check_model_candidates(
+    data: Any,
+    run_ids: set[str],
+    run_candidates: dict[str, set[str]],
+    path: str,
+    mode: str,
+    runs_known: bool,
+) -> list[Finding]:
+    """Check that a model was chosen, not merely asserted.
+
+    A candidate declares why it is worth considering and what evidence would tell
+    it apart. Selecting one is only meaningful if some run actually evaluated it,
+    so the selection is checked against the runs that named the candidate.
+    """
+    findings: list[Finding] = []
+    if not isinstance(data, dict):
+        return findings
+    frozen = mode == "finalizing"
+    for component in as_list(data.get("components")):
+        if not isinstance(component, dict):
+            continue
+        ident = item_id(component, "model_id")
+        candidates = [item for item in as_list(component.get("candidates")) if isinstance(item, dict)]
+        if not candidates:
+            continue
+        seen: set[str] = set()
+        selected = [item for item in candidates if item.get("status") == "selected"]
+        for candidate in candidates:
+            candidate_id = item_id(candidate, "candidate_id")
+            if not candidate_id:
+                findings.append(finding("MODEL-E010", "error", "structural", "model-design", path, f"{ident} has a candidate without an ID", related_ids=[ident]))
+                continue
+            if candidate_id in seen:
+                findings.append(finding("MODEL-E011", "error", "structural", "model-design", path, f"{ident} has a duplicate candidate ID: {candidate_id}", related_ids=[ident, candidate_id]))
+            seen.add(candidate_id)
+            if not as_list(candidate.get("discriminating_evidence")):
+                findings.append(finding("MODEL-W012", "warning", "semantic", "model-design", path, f"{candidate_id} does not say what evidence would tell it apart from the other candidates", related_ids=[ident, candidate_id]))
+            evaluation_runs = [str(value) for value in as_list(candidate.get("evaluation_run_ids"))]
+            for run_id in evaluation_runs if runs_known else []:
+                if run_id not in run_ids:
+                    findings.append(finding("MODEL-E015", "error", "structural", "model-design", path, f"{candidate_id} cites an unknown evaluation run: {run_id}", related_ids=[ident, candidate_id, run_id]))
+                elif candidate_id not in run_candidates.get(run_id, set()):
+                    findings.append(finding("MODEL-W016", "warning", "structural", "model-design", path, f"{run_id} does not declare that it evaluated {candidate_id}; record it with record_run.py --candidate", related_ids=[ident, candidate_id, run_id]))
+            if candidate.get("status") in {"selected", "rejected"} and not nonempty(candidate.get("decision_rationale")):
+                severity = "error" if frozen else "warning"
+                findings.append(finding("MODEL-E014", severity, "semantic", "model-design", path, f"{candidate_id} is {candidate.get('status')} without a recorded reason", related_ids=[ident, candidate_id]))
+            if runs_known and candidate.get("status") == "selected" and not evaluation_runs:
+                severity = "error" if frozen else "warning"
+                findings.append(
+                    finding(
+                        "MODEL-W014",
+                        severity,
+                        "numerical",
+                        "model-design",
+                        path,
+                        f"{candidate_id} was selected without citing any run that evaluated it",
+                        related_ids=[ident, candidate_id],
+                        remediation="evaluate candidates with record_run.py --candidate <id>, then cite those runs in evaluation_run_ids",
+                    )
+                )
+        if len(selected) != 1:
+            severity = "error" if frozen else "warning"
+            findings.append(
+                finding(
+                    "MODEL-E013",
+                    severity,
+                    "semantic",
+                    "model-design",
+                    path,
+                    f"{ident} must end with exactly one selected candidate; found {len(selected)}",
+                    related_ids=[ident],
+                )
+            )
+        elif nonempty(component.get("method")) and nonempty(selected[0].get("method")):
+            if selected[0]["method"].strip().casefold() not in component["method"].strip().casefold():
+                findings.append(finding("MODEL-W017", "warning", "semantic", "model-design", path, f"{ident} method does not mention the selected candidate's method", related_ids=[ident]))
+    return findings
+
+
+def check_model_verification(
+    data: Any,
+    capability_assertions: dict[str, set[str]],
+    path: str,
+) -> list[Finding]:
+    """A frozen verification plan must be backed by assertions an official run recorded."""
+    findings: list[Finding] = []
+    if not isinstance(data, dict):
+        return findings
+    for component in as_list(data.get("components")):
+        if not isinstance(component, dict):
+            continue
+        ident = item_id(component, "model_id")
+        plan = [str(entry) for entry in as_list(component.get("verification_plan"))]
+        recorded: set[str] = set()
+        for capability_id in as_list(component.get("capability_ids")):
+            recorded |= capability_assertions.get(str(capability_id), set())
+        if not recorded:
+            findings.append(
+                finding(
+                    "MODEL-E009",
+                    "error",
+                    "numerical",
+                    "model-design",
+                    path,
+                    f"frozen model has no executed verification: {ident} owns no official run assertion",
+                    related_ids=[ident],
+                )
+            )
+            continue
+        folded = " ".join(sorted(recorded)).casefold()
+        unmatched = [entry for entry in plan if entry.strip() and entry.strip().casefold() not in folded]
+        if unmatched:
+            findings.append(
+                finding(
+                    "MODEL-W010",
+                    "warning",
+                    "numerical",
+                    "model-design",
+                    path,
+                    f"{ident} verification plan entries have no matching recorded assertion: {', '.join(unmatched)}",
+                    related_ids=[ident],
+                )
+            )
     return findings
 
 
@@ -576,76 +712,96 @@ def discover_run_manifests(root: Path) -> list[Path]:
 
 
 def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) -> list[Finding]:
+    """Official runs carry the formal evidence burden; exploratory runs are kept but never block."""
     findings = check_envelope(data, "run_manifest", "computation", rel_path)
     if not isinstance(data, dict):
         return findings
-    required = ("run_id", "purpose", "capability_ids", "argv", "working_directory", "started_at", "finished_at", "exit_code", "status", "official_run", "implementation", "inputs", "outputs", "environment", "stdout_path", "stderr_path")
-    for field_name in required:
+    official_run = data.get("official_run") is True
+    # Exploratory runs exist so that Deferred Model Selection is cheap. They are
+    # recorded, never trusted, and never allowed to block the formal chain.
+    sev = "error" if official_run else "warning"
+
+    structural = ("run_id", "argv", "working_directory", "started_at", "finished_at", "exit_code", "status", "official_run", "implementation", "outputs")
+    formal = ("purpose", "capability_ids", "inputs", "environment", "stdout_path", "stderr_path")
+    for field_name in structural:
         if data.get(field_name) in (None, "", []):
             findings.append(finding("RUN-E001", "error", "execution", "computation", rel_path, f"missing run field: {field_name}", pointer=f"/{field_name}"))
-    official_run = data.get("official_run") is True
+    for field_name in formal:
+        if data.get(field_name) in (None, "", []):
+            findings.append(finding("RUN-E001", sev, "execution", "computation", rel_path, f"missing run field: {field_name}", pointer=f"/{field_name}"))
+
     if official_run and (data.get("status") != "completed" or data.get("exit_code") != 0):
         findings.append(finding("RUN-E002", "error", "execution", "computation", rel_path, "official run must record completed status and exit code 0"))
     elif not official_run and (data.get("status") != "completed" or data.get("exit_code") != 0):
-        findings.append(finding("RUN-W002", "warning", "execution", "computation", rel_path, "non-official exploratory run did not complete; it cannot support claims"))
+        findings.append(finding("RUN-W002", "info", "execution", "computation", rel_path, "exploratory run did not complete; it cannot support claims"))
+
     implementation = data.get("implementation")
     if not isinstance(implementation, dict):
-        findings.append(finding("RUN-E017", "error", "execution", "computation", rel_path, "run lacks implementation selection and source binding"))
+        findings.append(finding("RUN-E017", sev, "execution", "computation", rel_path, "run lacks implementation selection and source binding"))
     else:
         language = implementation.get("selected_language")
         if language not in {"matlab", "python"}:
-            findings.append(finding("RUN-E018", "error", "execution", "computation", rel_path, "selected_language must be matlab or python"))
+            findings.append(finding("RUN-E018", sev, "execution", "computation", rel_path, "selected_language must be matlab or python"))
         entry_point = safe_project_path(root, str(implementation.get("entry_point", "")).split(":", 1)[0])
         if entry_point is None or not entry_point.is_file():
-            findings.append(finding("RUN-E019", "error", "execution", "computation", rel_path, "selected implementation entry point is missing"))
+            findings.append(finding("RUN-E019", sev, "execution", "computation", rel_path, "selected implementation entry point is missing"))
         if official_run and not snapshot_matches(root, implementation.get("source_snapshot")):
             findings.append(finding("RUN-E020", "error", "execution", "computation", rel_path, "official run source snapshot is missing or stale"))
         argv = [str(value).casefold() for value in as_list(data.get("argv"))]
         if language == "matlab" and argv and not any("matlab" in value for value in argv):
-            findings.append(finding("RUN-E021", "error", "execution", "computation", rel_path, "MATLAB implementation is not bound to a MATLAB command"))
+            findings.append(finding("RUN-E021", sev, "execution", "computation", rel_path, "MATLAB implementation is not bound to a MATLAB command"))
         if language == "python" and argv and not any("python" in value for value in argv):
-            findings.append(finding("RUN-E022", "error", "execution", "computation", rel_path, "Python implementation is not bound to a Python command"))
+            findings.append(finding("RUN-E022", sev, "execution", "computation", rel_path, "Python implementation is not bound to a Python command"))
+
+    if official_run and not as_list(data.get("capability_ids")):
+        findings.append(finding("RUN-E023", "error", "structural", "computation", rel_path, "official run must name at least one capability"))
     for capability_id in as_list(data.get("capability_ids")):
         if capability_id not in capability_ids:
-            findings.append(finding("RUN-E003", "error", "structural", "computation", rel_path, f"run names unknown capability: {capability_id}", related_ids=[str(capability_id)]))
+            findings.append(finding("RUN-E003", sev, "structural", "computation", rel_path, f"run names unknown capability: {capability_id}", related_ids=[str(capability_id)]))
+
     for kind in ("inputs", "outputs"):
         required_hash_roles = {"formal_input", "claim_bearing_output"}
         allowed_roles = {"formal_input", "auxiliary_input"} if kind == "inputs" else {"claim_bearing_output", "intermediate_output", "diagnostic_output"}
         values = data.get(kind)
         if not isinstance(values, list) or (kind == "outputs" and not values):
-            findings.append(finding("RUN-E004", "error", "execution", "computation", rel_path, f"{kind} must be a {'nonempty ' if kind == 'outputs' else ''}list"))
+            findings.append(finding("RUN-E004", sev, "execution", "computation", rel_path, f"{kind} must be a {'nonempty ' if kind == 'outputs' else ''}list"))
             continue
-        for index, entry in enumerate(values):
+        for entry in values:
             if not isinstance(entry, dict):
-                findings.append(finding("RUN-E005", "error", "structural", "computation", rel_path, f"{kind} entry must be an object"))
+                findings.append(finding("RUN-E005", sev, "structural", "computation", rel_path, f"{kind} entry must be an object"))
                 continue
             file_path = safe_project_path(root, entry.get("path"))
             if file_path is None or not file_path.is_file() or file_path.stat().st_size == 0:
-                findings.append(finding("RUN-E006", "error", "execution", "computation", rel_path, f"missing or empty {kind[:-1]}: {entry.get('path')}"))
+                findings.append(finding("RUN-E006", sev, "execution", "computation", rel_path, f"missing or empty {kind[:-1]}: {entry.get('path')}"))
                 continue
             role = entry.get("evidence_role")
             if role not in allowed_roles:
-                findings.append(finding("RUN-E016", "error", "structural", "computation", rel_path, f"missing or invalid evidence_role for {kind[:-1]}: {entry.get('path')}"))
+                findings.append(finding("RUN-E016", sev, "structural", "computation", rel_path, f"missing or invalid evidence_role for {kind[:-1]}: {entry.get('path')}"))
                 continue
             recorded_hash = entry.get("sha256")
             if role in required_hash_roles:
                 if not nonempty(recorded_hash):
-                    findings.append(finding("RUN-E015", "error", "execution", "computation", rel_path, f"required hash is missing for {role}: {entry.get('path')}"))
+                    findings.append(finding("RUN-E015", sev, "execution", "computation", rel_path, f"required hash is missing for {role}: {entry.get('path')}"))
                 elif recorded_hash != sha256(file_path):
-                    findings.append(finding("RUN-E007", "error", "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
+                    findings.append(finding("RUN-E007", sev, "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
             elif nonempty(recorded_hash) and recorded_hash != sha256(file_path):
                 findings.append(finding("RUN-W007", "warning", "execution", "computation", rel_path, f"optional hash is stale for {role}: {entry.get('path')}"))
-            if entry.get("size") != file_path.stat().st_size:
-                findings.append(finding("RUN-W013", "warning", "execution", "computation", rel_path, f"size metadata is stale for {kind[:-1]}: {entry.get('path')}"))
+            if entry.get("size") is not None and entry.get("size") != file_path.stat().st_size:
+                findings.append(finding("RUN-W013", "warning", "execution", "computation", rel_path, f"size metadata is stale for {kind[:-1]}; run refresh_evidence.py: {entry.get('path')}"))
+
     for log_name in ("stdout_path", "stderr_path"):
         log_path = safe_project_path(root, data.get(log_name))
         if log_path is None or not log_path.is_file():
-            findings.append(finding("RUN-E012", "error", "execution", "computation", rel_path, f"missing recorded log: {data.get(log_name)}"))
+            findings.append(finding("RUN-E012", sev, "execution", "computation", rel_path, f"missing recorded log: {data.get(log_name)}"))
+
     assertions = data.get("assertions")
     if not isinstance(assertions, list) or not assertions:
-        findings.append(finding("RUN-W001", "warning", "numerical", "computation", rel_path, "run records no assertions"))
+        if official_run:
+            findings.append(finding("RUN-W001", "warning", "numerical", "computation", rel_path, "official run records no assertions"))
     elif any(isinstance(item, dict) and item.get("passed") is not True for item in assertions):
-        findings.append(finding("RUN-E008", "error", "numerical", "computation", rel_path, "one or more recorded assertions failed"))
+        # A failed assertion inside an exploratory run is a finding about the experiment,
+        # not about the formal chain, so it never blocks.
+        findings.append(finding("RUN-E008", sev, "numerical", "computation", rel_path, "one or more recorded assertions failed"))
     return findings
 
 
@@ -718,8 +874,20 @@ def check_independent_review_package(data: Any, root: Path, path: str) -> list[F
     findings = check_envelope(data, "independent_review_package", "validation", path)
     if not isinstance(data, dict):
         return findings
-    if data.get("conclusions_withheld") is not True:
-        findings.append(finding("IREVIEW-E001", "error", "semantic", "validation", path, "independent review package must withhold the originating conclusions as far as practical"))
+    excluded = {str(value) for value in as_list(data.get("context_excluded"))}
+    missing_exclusions = sorted(REQUIRED_CONTEXT_EXCLUSIONS - excluded)
+    if missing_exclusions:
+        findings.append(
+            finding(
+                "IREVIEW-E001",
+                "error",
+                "semantic",
+                "validation",
+                path,
+                "review package must record the prior reasoning it excluded: " + ", ".join(missing_exclusions),
+                remediation="rebuild the package with build_independent_review_package.py",
+            )
+        )
     for field in ("package_root", "review_skill_path", "review_request_path"):
         target = safe_project_path(root, data.get(field))
         if target is None or not target.exists():
@@ -810,6 +978,22 @@ def check_independent_review_result(data: Any, root: Path, path: str, package: A
     context = data.get("reviewer_context")
     if not isinstance(context, dict):
         return findings
+    unanswered = sorted(
+        field
+        for field in ("reviewer_kind", "different_conversation", "selected_by_user", "independence_grade")
+        if context.get(field) is None
+    )
+    if unanswered:
+        findings.append(
+            finding(
+                "IREVIEW-E027",
+                "error",
+                "semantic",
+                "validation",
+                path,
+                "reviewer independence must be positively asserted, not left at the template default: " + ", ".join(unanswered),
+            )
+        )
     if context.get("selected_by_user") is not True:
         findings.append(finding("IREVIEW-E008", "error", "semantic", "validation", path, "independent reviewer was not selected by the user"))
     if context.get("different_conversation") is not True or context.get("reviewer_kind") == "same_context_model" or context.get("independence_grade") == "correlated_self_review":
@@ -863,7 +1047,6 @@ def check_claims(
     data: Any,
     known_ids: dict[str, set[str]],
     path: str,
-    profile: str,
 ) -> list[Finding]:
     findings = check_envelope(data, "claim_ledger", "validation", path)
     if not isinstance(data, dict):
@@ -931,12 +1114,12 @@ def check_claims(
     return findings
 
 
-def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str], path: str, profile: str) -> list[Finding]:
+def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str], path: str) -> list[Finding]:
     findings = check_envelope(data, "figure_manifest", "paper", path)
     if not isinstance(data, dict):
         return findings
     figures = data.get("figures")
-    findings.extend(require_fields(figures, ("kind", "purpose", "path", "caption_claims", "visual_review"), ("figure_id",), "FIGURE", "paper", path))
+    findings.extend(require_fields(figures, ("kind", "purpose", "path", "caption_claims"), ("figure_id",), "FIGURE", "paper", path))
     for figure in as_list(figures):
         if not isinstance(figure, dict):
             continue
@@ -956,18 +1139,15 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
         if kind != "conceptual" and not as_list(figure.get("result_ids")):
             findings.append(finding("FIGURE-E008", "error", "semantic", "paper", path, f"quantitative figure lacks result provenance: {ident}", related_ids=[ident]))
         review = figure.get("visual_review")
-        if not isinstance(review, dict) or review.get("decision") != "accepted":
-            severity = "error" if profile == "strict" else "warning"
-            findings.append(finding("FIGURE-E009", severity, "visual", "paper", path, f"figure lacks accepted visual review: {ident}", related_ids=[ident], gate_only=severity == "error"))
+        if review is not None and (not isinstance(review, dict) or review.get("decision") != "accepted"):
+            findings.append(finding("FIGURE-W009", "warning", "visual", "paper", path, f"optional figure review is not accepted: {ident}", related_ids=[ident]))
     return findings
 
 
-def check_delivery(data: Any, root: Path, path: str, profile: str) -> list[Finding]:
+def check_delivery(data: Any, root: Path, path: str) -> list[Finding]:
     findings = check_envelope(data, "delivery_manifest", "delivery", path)
     if not isinstance(data, dict):
         return findings
-    if data.get("profile") != profile:
-        findings.append(finding("DELIVERY-E001", "error", "structural", "delivery", path, "delivery profile does not match requested profile"))
     source_policy = data.get("source_policy")
     if not isinstance(source_policy, dict) or source_policy.get("mode") != "user_supplied_only" or source_policy.get("network_lookup_performed") is not False:
         findings.append(finding("DELIVERY-E013", "error", "semantic", "delivery", path, "delivery compliance review must use user-supplied materials only and must not perform autonomous network lookup"))
@@ -1040,8 +1220,6 @@ def check_paper_plan(
     claim_ids: set[str],
     result_ids: set[str],
     figure_ids: set[str],
-    known_evidence_ids: set[str],
-    profile: str,
 ) -> list[Finding]:
     findings = check_envelope(data, "paper_plan", "paper", path)
     if not isinstance(data, dict):
@@ -1098,9 +1276,8 @@ def check_paper_quality(
     root: Path,
     path: str,
     subproblem_ids: set[str],
-    known_evidence_ids: set[str],
-    profile: str,
 ) -> list[Finding]:
+    """Bind reviews to the exact PDF. Reviewer prose is recorded, not scored."""
     findings = check_envelope(data, "paper_quality_report", "paper", path)
     if not isinstance(data, dict):
         return findings
@@ -1120,10 +1297,6 @@ def check_paper_quality(
         if isinstance(artifact, dict) and (artifact.get("path") != bound_path or artifact.get("sha256") != bound_hash):
             findings.append(finding("PQUALITY-E004", "error", "structural", "paper", path, f"{name} review is bound to a different paper version"))
     if isinstance(content, dict):
-        for dimension in ("abstract_synthesis", "conclusion_directness", "internal_metadata_separation", "reference_style_transfer"):
-            item = content.get(dimension)
-            if isinstance(item, dict) and item.get("status") == "fail":
-                findings.append(finding("PQUALITY-W015", "warning", "semantic", "paper", path, f"content concern: {dimension}"))
         reviewed_questions = ids(content.get("questions"), "subproblem_id")
         missing = sorted(subproblem_ids - reviewed_questions)
         if missing:
@@ -1136,29 +1309,11 @@ def check_paper_quality(
                 findings.append(finding("PQUALITY-W006", "warning", "semantic", "paper", path, f"paper content concern remains: {subproblem}", related_ids=[subproblem]))
             elif question.get("status") == "concern":
                 findings.append(finding("PQUALITY-W016", "warning", "semantic", "paper", path, f"paper content can be improved: {subproblem}", related_ids=[subproblem]))
-            for dimension in (
-                "argument_chain",
-                "mechanism_explanation",
-                "derivation",
-                "result_interpretation",
-                "reader_facing_language",
-                "numerical_presentation",
-                "validation_strength",
-                "limitations",
-            ):
-                item = question.get(dimension)
-                if not isinstance(item, dict):
-                    continue
-                if item.get("status") == "fail":
-                    findings.append(finding("PQUALITY-W017", "warning", "semantic", "paper", path, f"content concern: {subproblem}/{dimension}", related_ids=[subproblem]))
-                for evidence_id in as_list(item.get("evidence_ids")):
-                    if evidence_id not in known_evidence_ids:
-                        findings.append(finding("PQUALITY-E007", "error", "structural", "paper", path, f"content review names unknown evidence: {evidence_id}", related_ids=[subproblem, str(evidence_id)]))
     if isinstance(layout, dict):
         page_count = layout.get("page_count")
         pages = {page for page in as_list(layout.get("rendered_pages")) if isinstance(page, int)}
-        if (profile == "strict" or data.get("paper_status") == "final") and isinstance(page_count, int) and pages != set(range(1, page_count + 1)):
-            findings.append(finding("PQUALITY-E008", "error", "visual", "paper", path, "strict or final layout review must record visual inspection of every PDF page"))
+        if data.get("paper_status") == "final" and isinstance(page_count, int) and pages != set(range(1, page_count + 1)):
+            findings.append(finding("PQUALITY-E008", "error", "visual", "paper", path, "final layout review must cover every rendered PDF page; record_compile.py renders them"))
         if any(isinstance(check, dict) and check.get("status") == "fail" for check in as_list(layout.get("checks"))):
             findings.append(finding("PQUALITY-E009", "error", "visual", "paper", path, "layout review contains failed checks"))
     issues = as_list(data.get("open_issues"))
@@ -1169,36 +1324,18 @@ def check_paper_quality(
         open_p0 = [item_id(issue, "issue_id") for issue in issues if isinstance(issue, dict) and issue.get("severity") == "P0" and issue.get("status") == "open"]
         if open_p0:
             findings.append(finding("PQUALITY-E011", "error", "semantic", "paper", path, f"final paper has open P0 issues: {', '.join(open_p0)}", related_ids=open_p0))
-        open_p1 = [item_id(issue, "issue_id") for issue in issues if isinstance(issue, dict) and issue.get("severity") == "P1" and issue.get("status") == "open"]
-        open_p2 = [item_id(issue, "issue_id") for issue in issues if isinstance(issue, dict) and issue.get("severity") == "P2" and issue.get("status") == "open"]
-        for issue_id in open_p1:
-            findings.append(finding("PQUALITY-W011", "warning", "semantic", "paper", path, f"final paper retains a concern: {issue_id}", related_ids=[issue_id]))
-        for issue_id in open_p2:
-            findings.append(finding("PQUALITY-I011", "info", "semantic", "paper", path, f"final paper retains a suggestion: {issue_id}", related_ids=[issue_id]))
+        for issue in issues:
+            if not isinstance(issue, dict) or issue.get("status") != "open":
+                continue
+            issue_id = item_id(issue, "issue_id")
+            if issue.get("severity") == "P1":
+                findings.append(finding("PQUALITY-W011", "warning", "semantic", "paper", path, f"final paper retains a concern: {issue_id}", related_ids=[issue_id]))
+            elif issue.get("severity") == "P2":
+                findings.append(finding("PQUALITY-I011", "info", "semantic", "paper", path, f"final paper retains a suggestion: {issue_id}", related_ids=[issue_id]))
         if isinstance(content, dict) and content.get("reviewer_kind") == "same_context_model":
             findings.append(finding("PQUALITY-E013", "error", "semantic", "paper", path, "same-context content self-review cannot finalize the reader-facing paper", gate_only=True))
         if isinstance(final_qa, dict) and final_qa.get("reviewer_kind") == "same_context_model":
             findings.append(finding("PQUALITY-E014", "error", "semantic", "paper", path, "same-context final QA cannot finalize the paper", gate_only=True))
-    return findings
-
-
-def check_paper_traceability(data: Any, path: str, claim_ids: set[str], result_ids: set[str]) -> list[Finding]:
-    findings = check_envelope(data, "paper_traceability", "paper", path)
-    if not isinstance(data, dict):
-        return findings
-    if data.get("visible_id_policy") != "prohibited":
-        findings.append(finding("PTRACE-E001", "error", "semantic", "paper", path, "paper traceability must keep internal IDs out of visible content"))
-    for entry in as_list(data.get("entries")):
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("render_policy") != "sidecar_only":
-            findings.append(finding("PTRACE-E002", "error", "semantic", "paper", path, f"traceability entry is not sidecar-only: {entry.get('anchor')}"))
-        for claim_id in as_list(entry.get("claim_ids")):
-            if claim_id not in claim_ids:
-                findings.append(finding("PTRACE-E003", "error", "structural", "paper", path, f"traceability entry names unknown claim: {claim_id}"))
-        for result_id in as_list(entry.get("result_ids")):
-            if result_id not in result_ids:
-                findings.append(finding("PTRACE-E004", "error", "structural", "paper", path, f"traceability entry names unknown result: {result_id}"))
     return findings
 
 
@@ -1216,10 +1353,9 @@ def check_paper_visible_text(data: Any, root: Path, path: str, paper_quality: An
     open_flags = [flag for flag in as_list(data.get("review_flags")) if isinstance(flag, dict) and flag.get("resolution_status") == "open"]
     if open_flags:
         findings.append(finding("PTEXT-W006", "warning", "semantic", "paper", path, "visible-text report has numerical-presentation suggestions to review"))
-    if isinstance(paper_quality, dict) and paper_quality.get("paper_status") == "final":
-        review = data.get("review")
-        if not isinstance(review, dict) or review.get("decision") != "accepted":
-            findings.append(finding("PTEXT-E007", "error", "semantic", "paper", path, "final visible-text report requires reader-facing review", gate_only=True))
+    # The visible-text report is machine-produced. Blocking matches already fail, and
+    # human acceptance of the paper lives in PAPER_QUALITY_REPORT.final_qa; asking for a
+    # second signature on a generated report only bought an extra self-attestation.
     return findings
 
 
@@ -1231,7 +1367,7 @@ def check_latex_template(
     paper_quality: Any,
     through_stage: str,
 ) -> list[Finding]:
-    findings = check_envelope(data, "latex_template_manifest", "paper", path)
+    findings: list[Finding] = check_envelope(data, "latex_template_manifest", "paper", path)
     if not isinstance(data, dict):
         return findings
     required_files = as_list(data.get("required_files"))
@@ -1342,7 +1478,7 @@ def check_revision_log(data: Any, root: Path, path: str, paper_artifact: Any, is
     return findings
 
 
-def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any, latex_template: Any, delivery: Any, profile: str) -> list[Finding]:
+def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any, latex_template: Any, delivery: Any) -> list[Finding]:
     findings = check_envelope(data, "compile_receipt", "delivery", path)
     if not isinstance(data, dict):
         return findings
@@ -1369,8 +1505,8 @@ def check_compile_receipt(data: Any, root: Path, path: str, quality_report: Any,
         findings.append(finding("COMPILE-E004", "error", "execution", "delivery", path, "selected compile log is missing"))
     if selected.get("exit_code") != 0:
         findings.append(finding("COMPILE-E005", "error", "execution", "delivery", path, "selected compile attempt did not exit successfully"))
-    if profile == "strict" and (selected.get("font_check") != "pass" or selected.get("glyph_check") != "pass"):
-        findings.append(finding("COMPILE-E006", "error", "visual", "delivery", path, "strict delivery requires passing font and missing-glyph checks"))
+    if selected.get("font_check") != "pass" or selected.get("glyph_check") != "pass":
+        findings.append(finding("COMPILE-E006", "error", "visual", "delivery", path, "delivery requires passing font and missing-glyph checks; record_compile.py derives them from the engine log"))
     if isinstance(latex_template, dict) and str(selected.get("engine", "")).casefold() != str(latex_template.get("engine", "")).casefold():
         findings.append(finding("COMPILE-E014", "error", "execution", "delivery", path, "selected compile engine differs from the LaTeX template manifest"))
     binding = data.get("layout_review_binding")
@@ -1483,42 +1619,6 @@ def trusted_stage_snapshots(root: Path, through_stage: str) -> list[str]:
     return trusted
 
 
-def plan_scoped_revalidation(changed_paths: Iterable[str], impact: str, through_stage: str) -> dict[str, Any]:
-    if impact not in CHANGE_IMPACTS:
-        raise ValueError(f"unknown change impact: {impact}")
-    paths = sorted({str(value) for value in changed_paths})
-    if impact == "global":
-        stages = STAGES[: STAGES.index(through_stage) + 1]
-    elif impact == "claim_changing":
-        stages = [stage for stage in ("computation", "validation", "paper", "delivery") if STAGES.index(stage) <= STAGES.index(through_stage)]
-    elif impact == "cosmetic":
-        stages = [stage for stage in ("paper", "delivery") if STAGES.index(stage) <= STAGES.index(through_stage)]
-    else:
-        prefixes = {
-            "problem/": "intake",
-            "analysis/": "problem-analysis",
-            "model/": "model-design",
-            "code/": "computation",
-            "runs/": "computation",
-            "results/": "computation",
-            "validation/": "validation",
-            "figures/": "paper",
-            "paper/": "paper",
-            "delivery/": "delivery",
-        }
-        owners = {
-            stage for rel in paths for prefix, stage in prefixes.items() if rel.startswith(prefix)
-        }
-        if not owners:
-            owners = {through_stage}
-        start = min(STAGES.index(stage) for stage in owners)
-        if impact == "local":
-            stages = sorted(owners, key=STAGES.index)
-        else:
-            stages = STAGES[start : STAGES.index(through_stage) + 1]
-    return {"impact": impact, "changed_paths": paths, "stages": stages, "full_workspace_audit": impact == "global"}
-
-
 def stage_scope_paths(root: Path, stage: str) -> list[str]:
     mapping = {
         "intake": [CONTRACT_PATHS["sources"]],
@@ -1529,16 +1629,21 @@ def stage_scope_paths(root: Path, stage: str) -> list[str]:
         "paper": [CONTRACT_PATHS["figures"], *(CONTRACT_PATHS[name] for name in PAPER_CONTRACTS)],
         "delivery": [CONTRACT_PATHS["delivery"], CONTRACT_PATHS["compile_receipt"]],
     }
-    paths = list(mapping[stage])
+    optional_paths = {CONTRACT_PATHS[name] for name in OPTIONAL_CONTRACTS}
+    # An optional contract only enters a decision scope when the project actually has it.
+    paths = [rel for rel in mapping[stage] if rel not in optional_paths or (root / rel).is_file()]
     if stage == "computation":
+        # Only official runs enter a formal decision scope. Exploratory runs must be
+        # free to appear and change without invalidating an accepted stage.
         for manifest_path in discover_run_manifests(root):
-            paths.append(manifest_path.relative_to(root).as_posix())
             manifest, error = read_json(manifest_path)
-            if not error and isinstance(manifest, dict):
-                implementation = manifest.get("implementation")
-                snapshot = implementation.get("source_snapshot") if isinstance(implementation, dict) else None
-                if isinstance(snapshot, dict):
-                    paths.extend(str(value) for value in as_list(snapshot.get("files")))
+            if error or not isinstance(manifest, dict) or manifest.get("official_run") is not True:
+                continue
+            paths.append(manifest_path.relative_to(root).as_posix())
+            implementation = manifest.get("implementation")
+            snapshot = implementation.get("source_snapshot") if isinstance(implementation, dict) else None
+            if isinstance(snapshot, dict):
+                paths.extend(str(value) for value in as_list(snapshot.get("files")))
     elif stage == "paper":
         latex, _ = read_json(root / CONTRACT_PATHS["latex_template"])
         quality, _ = read_json(root / CONTRACT_PATHS["paper_quality"])
@@ -1672,7 +1777,6 @@ def owning_stage_for_contract(name: str) -> str:
         "latex_template": "paper",
         "paper_quality": "paper",
         "paper_revisions": "paper",
-        "paper_traceability": "paper",
         "paper_visible_text": "paper",
         "delivery": "delivery",
         "compile_receipt": "delivery",
@@ -1683,52 +1787,74 @@ def owning_stage_for_contract(name: str) -> str:
     }[name]
 
 
-def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforce") -> tuple[list[Finding], dict[str, Any]]:
+def candidate_summary(model: Any) -> list[dict[str, Any]]:
+    """A compact view of the model comparison, so the choice is visible in the report."""
+    summary: list[dict[str, Any]] = []
+    if not isinstance(model, dict):
+        return summary
+    for component in as_list(model.get("components")):
+        if not isinstance(component, dict):
+            continue
+        candidates = [item for item in as_list(component.get("candidates")) if isinstance(item, dict)]
+        if not candidates:
+            continue
+        summary.append(
+            {
+                "model_id": item_id(component, "model_id"),
+                "candidates": [
+                    {
+                        "candidate_id": item_id(item, "candidate_id"),
+                        "status": item.get("status"),
+                        "evaluation_run_ids": [str(value) for value in as_list(item.get("evaluation_run_ids"))],
+                    }
+                    for item in candidates
+                ],
+            }
+        )
+    return summary
+
+
+def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[list[Finding], dict[str, Any]]:
+    """Deterministic evidence check through `stage`.
+
+    v0.6 has exactly two knobs: the project mode (`working` / `finalizing`) decides
+    which contracts must be complete, and `gate_mode` decides whether human-gated
+    findings count toward the blocking total.
+    """
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
-    if profile not in PROFILES:
-        raise ValueError(f"unknown profile: {profile}")
     if gate_mode not in GATE_MODES:
         raise ValueError(f"unknown gate mode: {gate_mode}")
     state_preview, _ = read_json(root / CONTRACT_PATHS["state"])
     workflow_version = state_preview.get("workflow_version") if isinstance(state_preview, dict) else None
     workflow_mode = state_preview.get("mode") if isinstance(state_preview, dict) else None
+    mode = workflow_mode if workflow_mode in WORKFLOW_MODES else "working"
+    frozen = mode == "finalizing"
+
     required = list(STAGE_CONTRACTS[stage])
-    if workflow_mode == "finalizing":
-        handoff_requirements = (
+    if frozen:
+        required.extend(FINALIZING_CONTRACTS.get(stage, ()))
+        for threshold, name in (
             ("computation", "handoff_modeling_computation"),
             ("validation", "handoff_computation_validation"),
             ("paper", "handoff_validation_paper"),
             ("delivery", "handoff_paper_delivery"),
-        )
-        for threshold, name in handoff_requirements:
+        ):
             if STAGES.index(stage) >= STAGES.index(threshold):
                 required.append(name)
     contracts, findings = load_contracts(root, required)
-    optional_revision_path = root / CONTRACT_PATHS["paper_revisions"]
-    if STAGES.index(stage) >= STAGES.index("paper") and optional_revision_path.is_file():
-        optional_revision, error = read_json(optional_revision_path)
+
+    for name, from_stage in OPTIONAL_CONTRACTS.items():
+        if name in contracts or STAGES.index(stage) < STAGES.index(from_stage):
+            continue
+        optional_path = root / CONTRACT_PATHS[name]
+        if not optional_path.is_file():
+            continue
+        value, error = read_json(optional_path)
         if error:
-            findings.append(finding("PROJECT-E002", "error", "structural", "paper", CONTRACT_PATHS["paper_revisions"], f"invalid optional revision log: {error}"))
+            findings.append(finding("PROJECT-E002", "error", "structural", owning_stage_for_contract(name), CONTRACT_PATHS[name], f"invalid optional contract: {error}"))
         else:
-            contracts["paper_revisions"] = optional_revision
-    if stage == "validation" and "figures" not in contracts:
-        optional_figure_path = root / CONTRACT_PATHS["figures"]
-        if optional_figure_path.is_file():
-            optional_figures, error = read_json(optional_figure_path)
-            if error:
-                findings.append(
-                    finding(
-                        "PROJECT-E002",
-                        "error",
-                        "structural",
-                        "paper",
-                        CONTRACT_PATHS["figures"],
-                        f"invalid optional figure manifest: {error}",
-                    )
-                )
-            else:
-                contracts["figures"] = optional_figures
+            contracts[name] = value
 
     project_ids = {
         value.get("project_id")
@@ -1736,16 +1862,7 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         if isinstance(value, dict) and nonempty(value.get("project_id"))
     }
     if len(project_ids) > 1:
-        findings.append(
-            finding(
-                "PROJECT-E003",
-                "error",
-                "structural",
-                "intake",
-                ".",
-                f"contracts contain mixed project IDs: {', '.join(sorted(project_ids))}",
-            )
-        )
+        findings.append(finding("PROJECT-E003", "error", "structural", "intake", ".", f"contracts contain mixed project IDs: {', '.join(sorted(project_ids))}"))
 
     source_ids: set[str] = set()
     fact_ids: set[str] = set()
@@ -1758,8 +1875,8 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
 
     if "state" in contracts:
         findings.extend(check_schema(contracts["state"], "state", "intake", CONTRACT_PATHS["state"]))
-        findings.extend(check_state(contracts["state"], CONTRACT_PATHS["state"]))
-        if workflow_mode == "finalizing":
+        findings.extend(check_state(contracts["state"], CONTRACT_PATHS["state"], mode))
+        if frozen:
             state_map = contracts["state"].get("stages", {}) if isinstance(contracts["state"], dict) else {}
             for required_stage in STAGES[: STAGES.index(stage) + 1]:
                 if state_map.get(required_stage) != "passed":
@@ -1783,7 +1900,7 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         capability_ids = ids(contracts["capabilities"].get("capabilities"), "capability_id") if isinstance(contracts["capabilities"], dict) else set()
     if "model" in contracts:
         findings.extend(check_schema(contracts["model"], "model", "model-design", CONTRACT_PATHS["model"]))
-        findings.extend(check_model(contracts["model"], capability_ids, CONTRACT_PATHS["model"], profile))
+        findings.extend(check_model(contracts["model"], capability_ids, CONTRACT_PATHS["model"], mode))
         model_ids = ids(contracts["model"].get("components"), "model_id") if isinstance(contracts["model"], dict) else set()
     if "cross_question" in contracts:
         findings.extend(check_schema(contracts["cross_question"], "cross_question", "model-design", CONTRACT_PATHS["cross_question"]))
@@ -1793,11 +1910,13 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
     official_run_ids: set[str] = set()
     run_output_roles: dict[str, dict[str, str]] = {}
     executed_capability_ids: set[str] = set()
+    capability_assertions: dict[str, set[str]] = {}
+    run_candidates: dict[str, set[str]] = {}
     run_count = 0
     if STAGES.index(stage) >= STAGES.index("computation"):
         run_paths = discover_run_manifests(root)
         if not run_paths:
-            findings.append(finding("RUN-E009", "error", "execution", "computation", "runs/", "no run manifests found"))
+            findings.append(finding("RUN-E009", "error", "execution", "computation", "runs/", "no run manifests found; record one with record_run.py"))
         for run_path in run_paths:
             rel = run_path.relative_to(root).as_posix()
             run, error = read_json(run_path)
@@ -1810,9 +1929,18 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
                 if run["run_id"] in run_ids:
                     findings.append(finding("RUN-E011", "error", "structural", "computation", rel, f"duplicate run ID: {run['run_id']}"))
                 run_ids.add(run["run_id"])
-                if run.get("official_run") is True and run.get("status") == "completed" and run.get("exit_code") == 0:
+                is_official = run.get("official_run") is True and run.get("status") == "completed" and run.get("exit_code") == 0
+                if is_official:
                     official_run_ids.add(run["run_id"])
+                    names = {
+                        str(item.get("name"))
+                        for item in as_list(run.get("assertions"))
+                        if isinstance(item, dict) and nonempty(item.get("name"))
+                    }
+                    for capability_id in as_list(run.get("capability_ids")):
+                        capability_assertions.setdefault(str(capability_id), set()).update(names)
                 executed_capability_ids.update(str(value) for value in as_list(run.get("capability_ids")))
+                run_candidates[run["run_id"]] = {str(value) for value in as_list(run.get("candidate_ids"))}
                 run_output_roles[run["run_id"]] = {
                     str(entry.get("path")): str(entry.get("evidence_role"))
                     for entry in as_list(run.get("outputs"))
@@ -1825,17 +1953,13 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
                     continue
                 capability_id = item_id(capability, "capability_id")
                 if capability_id not in executed_capability_ids:
-                    findings.append(
-                        finding(
-                            "RUN-E014",
-                            "error",
-                            "execution",
-                            "computation",
-                            CONTRACT_PATHS["capabilities"],
-                            f"capability declares execution without a run: {capability_id}",
-                            related_ids=[capability_id],
-                        )
-                    )
+                    findings.append(finding("RUN-E014", "error", "execution", "computation", CONTRACT_PATHS["capabilities"], f"capability declares execution without a run: {capability_id}", related_ids=[capability_id]))
+    if "model" in contracts and STAGES.index(stage) >= STAGES.index("model-design"):
+        # Run references only make sense once runs are in scope for this check.
+        runs_known = STAGES.index(stage) >= STAGES.index("computation")
+        findings.extend(check_model_candidates(contracts["model"], run_ids, run_candidates, CONTRACT_PATHS["model"], mode, runs_known))
+    if frozen and "model" in contracts and STAGES.index(stage) >= STAGES.index("computation"):
+        findings.extend(check_model_verification(contracts["model"], capability_assertions, CONTRACT_PATHS["model"]))
     if "results" in contracts:
         findings.extend(check_schema(contracts["results"], "results", "computation", CONTRACT_PATHS["results"]))
         findings.extend(check_results(contracts["results"], root, run_ids, official_run_ids, run_output_roles, CONTRACT_PATHS["results"]))
@@ -1858,26 +1982,20 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         findings.extend(check_schema(contracts["figures"], "figures", "paper", CONTRACT_PATHS["figures"]))
         if isinstance(contracts["figures"], dict):
             figure_ids = ids(contracts["figures"].get("figures"), "figure_id")
-        findings.extend(check_figures(contracts["figures"], root, result_ids, run_ids, CONTRACT_PATHS["figures"], profile))
+        findings.extend(check_figures(contracts["figures"], root, result_ids, run_ids, CONTRACT_PATHS["figures"]))
     if "claims" in contracts:
         findings.extend(check_schema(contracts["claims"], "claims", "validation", CONTRACT_PATHS["claims"]))
-        known = {
-            "facts": fact_ids,
-            "models": model_ids,
-            "runs": run_ids,
-            "results": result_ids,
-            "figures": figure_ids,
-        }
-        findings.extend(check_claims(contracts["claims"], known, CONTRACT_PATHS["claims"], profile))
+        known = {"facts": fact_ids, "models": model_ids, "runs": run_ids, "results": result_ids, "figures": figure_ids}
+        findings.extend(check_claims(contracts["claims"], known, CONTRACT_PATHS["claims"]))
         if isinstance(contracts["claims"], dict):
             claim_ids = ids(contracts["claims"].get("claims"), "claim_id")
     known_evidence_ids = set().union(fact_ids, model_ids, run_ids, result_ids, figure_ids, claim_ids)
     if "paper_plan" in contracts:
         findings.extend(check_schema(contracts["paper_plan"], "paper_plan", "paper", CONTRACT_PATHS["paper_plan"]))
-        findings.extend(check_paper_plan(contracts["paper_plan"], CONTRACT_PATHS["paper_plan"], subproblem_ids, claim_ids, result_ids, figure_ids, known_evidence_ids, profile))
+        findings.extend(check_paper_plan(contracts["paper_plan"], CONTRACT_PATHS["paper_plan"], subproblem_ids, claim_ids, result_ids, figure_ids))
     if "paper_quality" in contracts:
         findings.extend(check_schema(contracts["paper_quality"], "paper_quality", "paper", CONTRACT_PATHS["paper_quality"]))
-        findings.extend(check_paper_quality(contracts["paper_quality"], root, CONTRACT_PATHS["paper_quality"], subproblem_ids, known_evidence_ids, profile))
+        findings.extend(check_paper_quality(contracts["paper_quality"], root, CONTRACT_PATHS["paper_quality"], subproblem_ids))
     if "latex_template" in contracts:
         findings.extend(check_schema(contracts["latex_template"], "latex_template", "paper", CONTRACT_PATHS["latex_template"]))
         findings.extend(check_latex_template(contracts["latex_template"], root, CONTRACT_PATHS["latex_template"], subproblem_ids, contracts.get("paper_quality"), stage))
@@ -1887,18 +2005,15 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         paper_artifact = quality.get("paper_artifact") if isinstance(quality, dict) else None
         issues = quality.get("open_issues") if isinstance(quality, dict) else []
         findings.extend(check_revision_log(contracts["paper_revisions"], root, CONTRACT_PATHS["paper_revisions"], paper_artifact, issues))
-    if "paper_traceability" in contracts:
-        findings.extend(check_schema(contracts["paper_traceability"], "paper_traceability", "paper", CONTRACT_PATHS["paper_traceability"]))
-        findings.extend(check_paper_traceability(contracts["paper_traceability"], CONTRACT_PATHS["paper_traceability"], claim_ids, result_ids))
     if "paper_visible_text" in contracts:
         findings.extend(check_schema(contracts["paper_visible_text"], "paper_visible_text", "paper", CONTRACT_PATHS["paper_visible_text"]))
         findings.extend(check_paper_visible_text(contracts["paper_visible_text"], root, CONTRACT_PATHS["paper_visible_text"], contracts.get("paper_quality")))
     if "delivery" in contracts:
         findings.extend(check_schema(contracts["delivery"], "delivery", "delivery", CONTRACT_PATHS["delivery"]))
-        findings.extend(check_delivery(contracts["delivery"], root, CONTRACT_PATHS["delivery"], profile))
+        findings.extend(check_delivery(contracts["delivery"], root, CONTRACT_PATHS["delivery"]))
     if "compile_receipt" in contracts:
         findings.extend(check_schema(contracts["compile_receipt"], "compile_receipt", "delivery", CONTRACT_PATHS["compile_receipt"]))
-        findings.extend(check_compile_receipt(contracts["compile_receipt"], root, CONTRACT_PATHS["compile_receipt"], contracts.get("paper_quality"), contracts.get("latex_template"), contracts.get("delivery"), profile))
+        findings.extend(check_compile_receipt(contracts["compile_receipt"], root, CONTRACT_PATHS["compile_receipt"], contracts.get("paper_quality"), contracts.get("latex_template"), contracts.get("delivery")))
 
     for name, transition in (
         ("handoff_modeling_computation", "modeling-computation"),
@@ -1910,26 +2025,23 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
             findings.extend(check_schema(contracts[name], name, owning_stage_for_contract(name), CONTRACT_PATHS[name]))
             findings.extend(check_handoff(contracts[name], root, CONTRACT_PATHS[name], transition))
 
-    state = contracts.get("state")
-    state_map = state.get("stages", {}) if isinstance(state, dict) else {}
-    if workflow_mode == "finalizing":
-        findings.extend(check_decision_log(root, state))
+    if frozen:
+        findings.extend(check_decision_log(root, contracts.get("state")))
 
     pending_review_count = sum(item.severity == "error" and item.gate_only for item in findings)
     automated_error_count = sum(item.severity == "error" and not item.gate_only for item in findings)
-    formal_gate_required = workflow_mode == "finalizing" and gate_mode == "enforce"
+    formal_gate_required = frozen and gate_mode == "enforce"
     blocking_error_count = automated_error_count + (pending_review_count if formal_gate_required else 0)
     if automated_error_count:
         gate_status = "blocked"
-    elif pending_review_count and workflow_mode == "finalizing":
+    elif pending_review_count and frozen:
         gate_status = "awaiting_review"
     else:
-        gate_status = "working_ready" if workflow_mode == "working" else "passed"
+        gate_status = "working_ready" if not frozen else "passed"
 
     summary = {
         "project_ids": sorted(project_ids),
         "stage": stage,
-        "profile": profile,
         "workflow_version": workflow_version,
         "workflow_mode": workflow_mode,
         "gate_mode": gate_mode,
@@ -1939,7 +2051,8 @@ def check_project(root: Path, stage: str, profile: str, gate_mode: str = "enforc
         "contracts_loaded": sorted(contracts),
         "run_count": run_count,
         "official_run_count": len(official_run_ids),
-        "trusted_snapshots": trusted_stage_snapshots(root, stage),
+        "model_candidates": candidate_summary(contracts.get("model")),
+        "stages_with_current_decision": trusted_stage_snapshots(root, stage),
         "finding_counts": {
             level: sum(item.severity == level for item in findings)
             for level in ("error", "warning", "info")

@@ -15,10 +15,11 @@ from workflow_checks import WORKFLOW_VERSION, sha256
 
 
 BLOCKING_PATTERNS = {
-    "PAPER-TEXT-E001": re.compile(r"\b(?:SRC|FACT|CAP|MODEL|RUN|RES|CLM|FIG)-[A-Z0-9-]+\b"),
+    # Workflow IDs have a fixed shape (PREFIX-[Qn-]NNN); a bare "MODEL-A" in prose is not one.
+    "PAPER-TEXT-E001": re.compile(r"\b(?:SRC|FACT|CAP|MODEL|RUN|RES|CLM|FIG)-(?:[A-Z]+\d+-)?\d{3}\b"),
     "PAPER-TEXT-E002": re.compile(r"\b(?:supported_not_reproduced|partially_supported|not_supported|not_applicable|missing_evidence|not_checked)\b", re.I),
     "PAPER-TEXT-E003": re.compile(r"(?:validation\s*门禁|workflow\s*gate|claim-bearing|\bvalidation\s+ID\b)", re.I),
-    "PAPER-TEXT-E004": re.compile(r"(?:file:///|/(?:Users|home)/[^\s/]+/|/private/var/folders/|Documents/Codex|[A-Za-z]:\\(?:Users|Documents and Settings)\\)", re.I),
+    "PAPER-TEXT-E004": re.compile(r"(?:file:///|/(?:Users|home)/[^\s/]+/|/private/var/folders/|[A-Za-z]:\\(?:Users|Documents and Settings)\\)", re.I),
 }
 
 
@@ -109,7 +110,6 @@ def build_report(project: Path, pdf: Path, output: Path) -> dict:
         "project_id": json.loads((project / ".cumcm/state.json").read_text(encoding="utf-8"))["project_id"],
         "updated_at": utc_now(),
         "producer": {"kind": "script", "name": "paper_visible_text_check.py", "version": WORKFLOW_VERSION},
-        "review": {"decision": "unreviewed", "reviewer": None, "reviewed_at": None, "scope": "reader-facing rendered PDF text", "notes": None},
         "paper_artifact": {"path": rel_pdf, "sha256": sha256(pdf)},
         "status": status,
         "blocking_matches": blocking,

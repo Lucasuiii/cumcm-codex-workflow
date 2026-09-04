@@ -16,6 +16,41 @@ Run `scripts/backend_selection.py` when a recorded deterministic selection is us
 
 The mathematical formulation, variable meanings, result IDs, and acceptance checks remain language-neutral.
 
+## Recording, not transcribing
+
+`record_run.py` executes the command and writes `RUN_MANIFEST.json` from what it observed. Never hand-write a manifest, a hash, or a `sha256-tree-v1` digest.
+
+```bash
+# exploration: no declarations at all
+python3 scripts/record_run.py --project <p> -- python3 code/try.py
+
+# formal: declare only what the tool cannot know
+python3 scripts/record_run.py --project <p> --official --capability CAP-Q1-001 \
+  --source code/solve.py --input data/q1.csv:formal \
+  --output results/q1.json:claim --assert "feasibility=pass" -- python3 code/solve.py
+
+# after a code change, one command re-executes and re-binds the snapshot
+python3 scripts/record_run.py --project <p> --rerun RUN-Q1-001 --official
+```
+
+Then index the result; the value is read through the locator, so the index can never disagree with the output:
+
+```bash
+python3 scripts/index_result.py --project <p> --result-id RES-Q1-001 --run RUN-Q1-001 \
+  --locator results/q1.json#/minimum_cost --name "Minimum cost" --unit CNY \
+  --scope "declared candidates only" --check "feasibility"
+```
+
+Exploratory runs are cheap on purpose: they are recorded, never trusted, and never block. A failed assertion or a non-zero exit inside one is a finding about the experiment, not about the formal chain.
+
+Their other job is settling the model comparison. Tag each evaluation with the candidate it is testing:
+
+```bash
+python3 scripts/record_run.py --project <p> --candidate CAND-A -- python3 code/try_a.py
+```
+
+That run then counts as evidence for or against `CAND-A` in `MODEL_CONTRACT.components[].candidates`. Only after one candidate is `selected` does that model earn an official run; see [03-model-design.md](03-model-design.md).
+
 ## Official run evidence
 
 Each `RUN_MANIFEST.json` records:

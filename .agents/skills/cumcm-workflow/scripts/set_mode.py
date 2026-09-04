@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atomically switch a v0.5 workspace between working and finalizing."""
+"""Atomically switch a v0.6 workspace between working and finalizing."""
 
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ def set_mode(project: Path, mode: str) -> dict:
         stream.write("\n")
         temp_name = stream.name
     os.replace(temp_name, path)
-    _, summary = check_project(project, str(state.get("current_stage")), "strict", "preflight")
+    _, summary = check_project(project, str(state.get("current_stage")), "preflight")
     return summary
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Switch a v0.5 project between working and finalizing")
+    parser = argparse.ArgumentParser(description="Switch a v0.6 project between working and finalizing")
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--mode", required=True, choices=("working", "finalizing"))
     args = parser.parse_args()

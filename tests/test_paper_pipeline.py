@@ -36,7 +36,7 @@ def record_decisions(root: Path, stages: tuple[str, ...]) -> None:
         }
         events.append(event)
         snapshot = {
-            "snapshot_version": "0.5.0", "project_id": "SYNTHETIC-2024-B", "stage": stage,
+            "snapshot_version": "0.6.0", "project_id": "SYNTHETIC-2024-B", "stage": stage,
             "decision_id": event["decision_id"], "decision": "accepted", "created_at": event["decided_at"],
             "artifacts": scope, "snapshot_digest": digest_records(scope),
         }
@@ -46,7 +46,7 @@ def record_decisions(root: Path, stages: tuple[str, ...]) -> None:
     decision_path.write_text("".join(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
 
 
-def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = None) -> None:
+def build_paper_ready_project(root: Path, *, decisions: tuple[str, ...] | None = None) -> None:
     build_valid_project(root)
     paper_path = root / "paper" / "paper.pdf"
     paper_artifact = {"path": "paper/paper.pdf", "sha256": digest_file(paper_path)}
@@ -203,23 +203,6 @@ def build_valid_v04_project(root: Path, *, decisions: tuple[str, ...] | None = N
     revisions.update({"initial_snapshot": paper_artifact, "revisions": []})
     write_json(root, "paper/PAPER_REVISION_LOG.json", revisions)
 
-    traceability = envelope("paper_traceability")
-    traceability.update(
-        {
-            "visible_id_policy": "prohibited",
-            "entries": [
-                {
-                    "anchor": "q1-main-result",
-                    "paper_location": "Q1 results",
-                    "claim_ids": ["CLM-Q1-001"],
-                    "result_ids": ["RES-Q1-001"],
-                    "render_policy": "sidecar_only",
-                }
-            ],
-        }
-    )
-    write_json(root, "paper/PAPER_TRACEABILITY.json", traceability)
-
     visible_text = envelope("paper_visible_text_report")
     visible_text.update(
         {
@@ -299,51 +282,20 @@ def set_state(root: Path, current: str, paper_status: str, delivery_status: str)
     write_json(root, ".cumcm/state.json", data)
 
 
-class V04PaperQualityTests(unittest.TestCase):
-    def test_complete_v04_project_passes(self):
+class PaperPipelineTests(unittest.TestCase):
+    def test_complete_paper_ready_project_passes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
-            findings, summary = check_project(root, "delivery", "strict")
+            build_paper_ready_project(root)
+            findings, summary = check_project(root, "delivery")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
-            self.assertEqual(summary["workflow_version"], "0.5.0")
+            self.assertEqual(summary["workflow_version"], "0.6.0")
             self.assertEqual(summary["gate_status"], "passed")
-
-    def test_legacy_argument_layers_are_not_a_hard_gate(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            build_valid_v04_project(root)
-            path = root / "paper" / "PAPER_PLAN.json"
-            data = json.loads(path.read_text(encoding="utf-8"))
-            del data["question_argument_chains"][0]["layers"]["derivation"]
-            write_json(root, "paper/PAPER_PLAN.json", data)
-            state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
-            state["mode"] = "working"
-            write_json(root, ".cumcm/state.json", state)
-            findings, _ = check_project(root, "paper", "strict")
-            self.assertNotIn("PPLAN-E008", {item.rule_id for item in findings})
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
-
-    def test_legacy_not_applicable_layer_does_not_block(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            build_valid_v04_project(root)
-            path = root / "paper" / "PAPER_PLAN.json"
-            data = json.loads(path.read_text(encoding="utf-8"))
-            layer = data["question_argument_chains"][0]["layers"]["derivation"]
-            layer.update({"status": "not_applicable", "rationale": None, "evidence_ids": []})
-            write_json(root, "paper/PAPER_PLAN.json", data)
-            state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
-            state["mode"] = "working"
-            write_json(root, ".cumcm/state.json", state)
-            findings, _ = check_project(root, "paper", "strict")
-            self.assertNotIn("PPLAN-E010", {item.rule_id for item in findings})
-            self.assertEqual([item for item in findings if item.severity == "error"], [])
 
     def test_no_planned_visual_is_warning_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["representation_plan"] = []
@@ -351,7 +303,7 @@ class V04PaperQualityTests(unittest.TestCase):
             state = json.loads((root / ".cumcm/state.json").read_text(encoding="utf-8"))
             state["mode"] = "working"
             write_json(root, ".cumcm/state.json", state)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             warning = next(item for item in findings if item.rule_id == "PPLAN-W001")
             self.assertEqual(warning.severity, "warning")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
@@ -359,37 +311,37 @@ class V04PaperQualityTests(unittest.TestCase):
     def test_representation_plan_requires_known_results(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["representation_plan"][0]["result_ids"] = ["RES-UNKNOWN"]
             write_json(root, "paper/PAPER_PLAN.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("PPLAN-E014", {item.rule_id for item in findings})
 
     def test_review_only_failure_is_preflight_zero_and_enforce_nonzero(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
-            set_state(root, "paper", "awaiting_review", "not_started")
+            build_paper_ready_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
+            set_state(root, "paper", "in_progress", "not_started")
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["content_review"]["decision"] = "unreviewed"
             write_json(root, "paper/PAPER_QUALITY_REPORT.json", data)
-            preflight_findings, preflight = check_project(root, "paper", "strict", "preflight")
-            _, enforce = check_project(root, "paper", "strict", "enforce")
+            preflight_findings, preflight = check_project(root, "paper", "preflight")
+            _, enforce = check_project(root, "paper", "enforce")
             self.assertIn("PQUALITY-E010", {item.rule_id for item in preflight_findings})
             self.assertEqual(preflight["blocking_error_count"], 0)
             self.assertEqual(preflight["gate_status"], "awaiting_review")
             self.assertGreater(enforce["blocking_error_count"], 0)
             preflight_cli = subprocess.run(
-                [sys.executable, str(SCRIPTS / "cumcm_check.py"), "--project", str(root), "--stage", "paper", "--profile", "strict", "--gate-mode", "preflight", "--no-write-report"],
+                [sys.executable, str(SCRIPTS / "cumcm_check.py"), "--project", str(root), "--stage", "paper", "--gate-mode", "preflight", "--no-write-report"],
                 check=False,
                 capture_output=True,
                 text=True,
             )
             enforce_cli = subprocess.run(
-                [sys.executable, str(SCRIPTS / "cumcm_check.py"), "--project", str(root), "--stage", "paper", "--profile", "strict", "--gate-mode", "enforce", "--no-write-report"],
+                [sys.executable, str(SCRIPTS / "cumcm_check.py"), "--project", str(root), "--stage", "paper", "--gate-mode", "enforce", "--no-write-report"],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -400,62 +352,62 @@ class V04PaperQualityTests(unittest.TestCase):
     def test_strict_layout_review_must_cover_all_pages(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["layout_review"]["page_count"] = 2
             write_json(root, "paper/PAPER_QUALITY_REPORT.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("PQUALITY-E008", {item.rule_id for item in findings})
 
     def test_final_paper_cannot_have_open_p0_issue(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["open_issues"] = [{"issue_id": "ISSUE-001", "severity": "P0", "category": "content", "status": "open", "description": "Missing derivation", "location": "Q1", "resolution": None, "verified_by": None}]
             write_json(root, "paper/PAPER_QUALITY_REPORT.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("PQUALITY-E011", {item.rule_id for item in findings})
 
     def test_revision_snapshot_hash_drift_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_REVISION_LOG.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["initial_snapshot"]["sha256"] = "0" * 64
             write_json(root, "paper/PAPER_REVISION_LOG.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("PREVISION-E003", {item.rule_id for item in findings})
 
     def test_closed_issue_requires_verified_revision(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_QUALITY_REPORT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["open_issues"] = [{"issue_id": "ISSUE-001", "severity": "P1", "category": "content", "status": "closed", "description": "Clarify result scope", "location": "Q1", "resolution": "Edited prose", "verified_by": "fixture-reviewer"}]
             write_json(root, "paper/PAPER_QUALITY_REPORT.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("PREVISION-E005", {item.rule_id for item in findings})
 
     def test_compile_receipt_page_count_mismatch_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "delivery" / "COMPILE_RECEIPT.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["attempts"][0]["page_count"] = 2
             write_json(root, "delivery/COMPILE_RECEIPT.json", data)
-            findings, _ = check_project(root, "delivery", "strict")
+            findings, _ = check_project(root, "delivery")
             self.assertIn("COMPILE-E010", {item.rule_id for item in findings})
 
-    def test_v04_decision_log_does_not_add_event_hash_chain(self):
+    def test_decision_log_does_not_add_event_hash_chain(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / ".cumcm" / "decisions.jsonl"
             lines = path.read_text(encoding="utf-8").splitlines()
             events = [json.loads(line) for line in lines]
@@ -465,18 +417,18 @@ class V04PaperQualityTests(unittest.TestCase):
     def test_stale_decision_scope_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "PAPER_PLAN.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["updated_at"] = "2026-08-30T13:00:00Z"
             write_json(root, "paper/PAPER_PLAN.json", data)
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("DECISION-E010", {item.rule_id for item in findings})
 
     def test_record_decision_rejects_duplicate_id(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -506,9 +458,9 @@ class V04PaperQualityTests(unittest.TestCase):
     def test_missing_stage_decision_is_review_only_in_preflight(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
+            build_paper_ready_project(root, decisions=("intake", "problem-analysis", "model-design", "computation", "validation"))
             set_state(root, "paper", "passed", "not_started")
-            findings, summary = check_project(root, "paper", "strict", "preflight")
+            findings, summary = check_project(root, "paper", "preflight")
             self.assertIn("DECISION-E008", {item.rule_id for item in findings})
             self.assertEqual(summary["gate_status"], "awaiting_review")
             self.assertEqual(summary["blocking_error_count"], 0)

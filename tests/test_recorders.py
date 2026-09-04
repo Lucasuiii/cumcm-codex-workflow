@@ -1,0 +1,494 @@
+"""End-to-end tests for the v0.6 recorders and Deferred Model Selection.
+
+Unlike the contract tests, these do not hand-write a single hash: every run,
+result and compile receipt here is produced by the tooling the workflow ships.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / ".agents" / "skills" / "cumcm-workflow" / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from init_project import initialize  # noqa: E402
+from plan_redo import build_plan  # noqa: E402
+from workflow_checks import check_project  # noqa: E402
+
+PROJECT_ID = "RECORDER-2026-A"
+
+
+def envelope(kind: str) -> dict:
+    return {
+        "schema_version": "0.6.0",
+        "artifact_type": kind,
+        "project_id": PROJECT_ID,
+        "updated_at": "2026-09-04T00:00:00Z",
+        "producer": {"kind": "script", "name": "test-fixture", "version": "0.6.0"},
+    }
+
+
+def write_json(root: Path, rel: str, payload: dict) -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def run_script(name: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPTS / name), *args], check=False, capture_output=True, text=True)
+
+
+SOLVER = """import json, pathlib
+values = [3.0, 1.5, 4.25]
+out = pathlib.Path("results/q1_output.json")
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps({"minimum_cost": min(values), "count": len(values)}) + "\\n", encoding="utf-8")
+print("solved")
+"""
+
+
+def make_project(temp: Path) -> Path:
+    official_dir = temp / "official"
+    official_dir.mkdir()
+    (official_dir / "problem.txt").write_text("Minimise the cost over the declared candidate set.\n", encoding="utf-8")
+    project = temp / "workspace"
+    initialize(project, PROJECT_ID, official_dir)
+
+    facts = envelope("problem_facts")
+    facts.update({
+        "subproblems": [{"subproblem_id": "Q1", "request": "Minimise cost over the candidate set.", "expected_output": "Minimum cost"}],
+        "facts": [{
+            "fact_id": "FACT-Q1-001", "statement": "The candidate set is finite and stated.",
+            "source_id": "SRC-001", "location": "line 1", "raw_value": "finite", "normalized_value": "finite",
+            "unit": None, "extraction_method": "native_text", "render_verified": True,
+        }],
+        "definitions": [], "ambiguities": [], "assumptions": [],
+    })
+    write_json(project, "analysis/PROBLEM_FACTS.json", facts)
+
+    capabilities = envelope("task_capabilities")
+    capabilities["capabilities"] = [{
+        "capability_id": "CAP-Q1-001", "subproblem_id": "Q1",
+        "objective": "Enumerate the candidate set.", "required_output": "Minimum cost",
+        "fact_ids": ["FACT-Q1-001"],
+        "acceptance_checks": [{"type": "enumeration_coverage", "expected": "every candidate visited"}],
+        "model_ids": ["MODEL-Q1-001"], "code_entry_points": ["code/solve.py:main"],
+        "result_ids": [], "lifecycle_state": "implemented", "blocking_issues": [],
+    }]
+    write_json(project, "analysis/TASK_CAPABILITIES.json", capabilities)
+
+    # A draft model contract: method and scope only. This is what Deferred Model
+    # Selection means -- variables, inputs, outputs and the verification plan are
+    # written once computation has told us what the model actually is.
+    model = envelope("model_contract")
+    model["components"] = [{
+        "model_id": "MODEL-Q1-001", "capability_ids": ["CAP-Q1-001"],
+        "method": "complete enumeration over the declared candidate set",
+        "scope": "declared candidates only; no continuous relaxation",
+    }]
+    write_json(project, "model/MODEL_CONTRACT.json", model)
+
+    (project / "code").mkdir(exist_ok=True)
+    (project / "code" / "solve.py").write_text(SOLVER, encoding="utf-8")
+    return project
+
+
+class RecorderTests(unittest.TestCase):
+    def test_exploratory_run_needs_no_declarations_and_never_blocks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            completed = run_script("record_run.py", "--project", str(project), "--", sys.executable, "code/solve.py")
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            manifest = json.loads((project / "runs" / "RUN-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertFalse(manifest["official_run"])
+            self.assertEqual(manifest["exit_code"], 0)
+            self.assertEqual(manifest["implementation"]["selected_language"], "python")
+            # nothing was typed by hand: the snapshot and the log paths were observed
+            self.assertEqual(manifest["implementation"]["source_snapshot"]["files"], ["code/solve.py"])
+            self.assertTrue((project / manifest["stdout_path"]).is_file())
+
+    def test_failing_exploratory_run_is_recorded_without_blocking_the_formal_chain(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            (project / "code" / "broken.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+            run_script("record_run.py", "--project", str(project), "--run-id", "RUN-BROKEN",
+                       "--", sys.executable, "code/broken.py")
+            self.record_official(project)
+            findings, summary = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(summary["run_count"], 2)
+            self.assertEqual(summary["official_run_count"], 1)
+
+    def record_official(self, project: Path) -> None:
+        completed = run_script(
+            "record_run.py", "--project", str(project), "--run-id", "RUN-Q1-001", "--official",
+            "--capability", "CAP-Q1-001", "--source", "code/solve.py",
+            "--input", "problem/official/problem.txt:formal",
+            "--output", "results/q1_output.json:claim",
+            "--assert", "enumeration coverage=pass",
+            "--", sys.executable, "code/solve.py",
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        indexed = run_script(
+            "index_result.py", "--project", str(project), "--result-id", "RES-Q1-001",
+            "--run", "RUN-Q1-001", "--locator", "results/q1_output.json#/minimum_cost",
+            "--name", "Minimum enumerated cost", "--unit", "cost", "--scope", "declared candidates only",
+            "--check", "enumeration coverage",
+        )
+        assert indexed.returncode == 0, indexed.stdout + indexed.stderr
+
+    def test_official_run_and_indexed_result_pass_the_checker_untouched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.record_official(project)
+            index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
+            self.assertEqual(index["results"][0]["value"], 1.5)
+            findings, summary = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(summary["gate_status"], "working_ready")
+
+    def test_index_result_refuses_a_non_official_or_non_claim_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            run_script("record_run.py", "--project", str(project), "--run-id", "RUN-EXP",
+                       "--", sys.executable, "code/solve.py")
+            rejected = run_script("index_result.py", "--project", str(project), "--result-id", "RES-X",
+                                  "--run", "RUN-EXP", "--locator", "results/q1_output.json#/minimum_cost",
+                                  "--name", "n", "--scope", "s")
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("not a successful official run", rejected.stderr)
+
+    def test_rerun_refreshes_the_snapshot_after_a_code_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.record_official(project)
+            before = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
+            stale, _ = check_project(project, "computation")
+            self.assertIn("RUN-E020", {item.rule_id for item in stale})
+            plan = build_plan(project, ["code/solve.py"])
+            self.assertEqual(plan["stale_official_runs"], ["RUN-Q1-001"])
+            completed = run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001", "--official")
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            run_script("index_result.py", "--project", str(project), "--refresh")
+            after = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(before["implementation"]["source_snapshot"]["digest"],
+                                after["implementation"]["source_snapshot"]["digest"])
+            self.assertEqual(after["capability_ids"], ["CAP-Q1-001"])
+            findings, _ = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
+            self.assertEqual(index["results"][0]["value"], 0.5)
+
+    def test_draft_model_passes_working_and_frozen_model_must_be_complete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.record_official(project)
+            working, _ = check_project(project, "model-design")
+            self.assertEqual([item for item in working if item.severity == "error"], [])
+            state_path = project / ".cumcm" / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["mode"] = "finalizing"
+            state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            frozen, _ = check_project(project, "model-design")
+            rules = {item.rule_id for item in frozen}
+            self.assertIn("MODEL-E005", rules)  # missing variables/inputs/outputs/verification_plan
+
+    def test_frozen_verification_plan_must_be_backed_by_recorded_assertions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.record_official(project)
+            model_path = project / "model" / "MODEL_CONTRACT.json"
+            model = json.loads(model_path.read_text(encoding="utf-8"))
+            model["components"][0].update({
+                "variables": [{"name": "candidate"}], "inputs": ["SRC-001"], "outputs": ["RES-Q1-001"],
+                "verification_plan": ["enumeration coverage"],
+            })
+            model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            state_path = project / ".cumcm" / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["mode"] = "finalizing"
+            state["stages"]["intake"] = "in_progress"
+            state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            matched, _ = check_project(project, "computation")
+            self.assertNotIn("MODEL-E009", {item.rule_id for item in matched})
+            self.assertNotIn("MODEL-W010", {item.rule_id for item in matched})
+
+            model["components"][0]["verification_plan"] = ["a check nobody executed"]
+            model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            unmatched, _ = check_project(project, "computation")
+            self.assertIn("MODEL-W010", {item.rule_id for item in unmatched})
+
+
+def ctex_available() -> bool:
+    if shutil.which("kpsewhich") is None:
+        return False
+    found = subprocess.run(["kpsewhich", "ctexart.cls"], check=False, capture_output=True, text=True)
+    return found.returncode == 0 and bool(found.stdout.strip())
+
+
+MINIMAL_TEX = """\\documentclass[a4paper]{article}
+\\begin{document}
+\\section{Enumeration}
+The minimum enumerated cost is 1.5 cost units.
+\\end{document}
+"""
+
+
+GREEDY = """import json, pathlib
+cands = {"a": 3.0, "b": 1.5, "c": 4.25}
+best = sorted(cands)[0]
+p = pathlib.Path("results/greedy.json"); p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps({"minimum_cost": cands[best], "visited": 1}) + "\\n", encoding="utf-8")
+print("greedy done")
+"""
+
+
+class CandidateSelectionTests(unittest.TestCase):
+    """The full Problem Analysis -> candidates -> exploratory evaluation -> selection chain.
+
+    Model Design proposes A and B with a reason and a discriminating observation;
+    cheap exploratory runs evaluate each; one is selected with a rationale that
+    cites those runs; only then does the selected model get an official run.
+    """
+
+    def with_candidates(self, project: Path, selected: str = "CAND-ENUM", **overrides) -> dict:
+        model_path = project / "model" / "MODEL_CONTRACT.json"
+        model = json.loads(model_path.read_text(encoding="utf-8"))
+        component = model["components"][0]
+        component["candidates"] = [
+            {
+                "candidate_id": "CAND-ENUM", "method": "complete enumeration",
+                "why_considered": "the declared candidate set is finite and small",
+                "discriminating_evidence": ["whether the greedy pick equals the enumerated minimum"],
+                "status": "selected" if selected == "CAND-ENUM" else "rejected",
+                "evaluation_run_ids": ["RUN-EVAL-ENUM"],
+                "decision_rationale": "enumeration found a strictly lower cost than the greedy rule",
+            },
+            {
+                "candidate_id": "CAND-GREEDY", "method": "greedy first-fit",
+                "why_considered": "constant time, and adequate if the set is already ordered by cost",
+                "discriminating_evidence": ["whether the greedy pick equals the enumerated minimum"],
+                "status": "selected" if selected == "CAND-GREEDY" else "rejected",
+                "evaluation_run_ids": ["RUN-EVAL-GREEDY"],
+                "decision_rationale": "greedy returned 3.0 against the enumerated 1.5, so it is not admissible",
+            },
+        ]
+        for key, value in overrides.items():
+            for candidate in component["candidates"]:
+                candidate[key] = value
+        model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return model
+
+    def evaluate_both(self, project: Path) -> None:
+        (project / "code" / "greedy.py").write_text(GREEDY, encoding="utf-8")
+        enum_run = run_script("record_run.py", "--project", str(project), "--run-id", "RUN-EVAL-ENUM",
+                              "--candidate", "CAND-ENUM", "--purpose", "evaluate complete enumeration",
+                              "--", sys.executable, "code/solve.py")
+        greedy_run = run_script("record_run.py", "--project", str(project), "--run-id", "RUN-EVAL-GREEDY",
+                                "--candidate", "CAND-GREEDY", "--purpose", "evaluate the greedy rule",
+                                "--", sys.executable, "code/greedy.py")
+        assert enum_run.returncode == 0, enum_run.stdout + enum_run.stderr
+        assert greedy_run.returncode == 0, greedy_run.stdout + greedy_run.stderr
+
+    def test_exploratory_runs_are_bound_to_the_candidate_they_evaluate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            manifest = json.loads((project / "runs" / "RUN-EVAL-GREEDY" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["candidate_ids"], ["CAND-GREEDY"])
+            self.assertFalse(manifest["official_run"])
+            # both candidates were evaluated at zero declaration cost, while the project
+            # is still in model-design and no formal result exists yet
+            findings, _ = check_project(project, "model-design")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            self.assertEqual(
+                sorted(path.parent.name for path in (project / "runs").glob("*/RUN_MANIFEST.json")),
+                ["RUN-EVAL-ENUM", "RUN-EVAL-GREEDY"],
+            )
+
+    def test_the_selected_candidate_and_its_evidence_appear_in_the_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            self.with_candidates(project)
+            RecorderTests.record_official(self, project)
+            findings, summary = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+            comparison = summary["model_candidates"][0]
+            self.assertEqual(comparison["model_id"], "MODEL-Q1-001")
+            statuses = {item["candidate_id"]: item["status"] for item in comparison["candidates"]}
+            self.assertEqual(statuses, {"CAND-ENUM": "selected", "CAND-GREEDY": "rejected"})
+            evidence = {item["candidate_id"]: item["evaluation_run_ids"] for item in comparison["candidates"]}
+            self.assertEqual(evidence["CAND-ENUM"], ["RUN-EVAL-ENUM"])
+
+    def test_a_selection_without_any_evaluation_run_is_flagged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            self.with_candidates(project, evaluation_run_ids=[])
+            RecorderTests.record_official(self, project)
+            findings, _ = check_project(project, "computation")
+            self.assertIn("MODEL-W014", {item.rule_id for item in findings})
+
+    def test_two_selected_candidates_or_none_is_an_unresolved_comparison(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            self.with_candidates(project, status="under_evaluation")
+            RecorderTests.record_official(self, project)
+            findings, _ = check_project(project, "computation")
+            self.assertIn("MODEL-E013", {item.rule_id for item in findings})
+
+    def test_a_candidate_without_discriminating_evidence_is_flagged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            self.with_candidates(project, discriminating_evidence=[])
+            RecorderTests.record_official(self, project)
+            findings, _ = check_project(project, "computation")
+            self.assertIn("MODEL-W012", {item.rule_id for item in findings})
+
+    def test_freezing_turns_an_unjustified_selection_into_a_blocking_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.evaluate_both(project)
+            self.with_candidates(project, decision_rationale=None)
+            RecorderTests.record_official(self, project)
+            working, _ = check_project(project, "computation")
+            self.assertNotIn("MODEL-E014", {item.rule_id for item in working if item.severity == "error"})
+            state_path = project / ".cumcm" / "state.json"
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["mode"] = "finalizing"
+            state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            frozen, _ = check_project(project, "computation")
+            self.assertIn("MODEL-E014", {item.rule_id for item in frozen if item.severity == "error"})
+
+
+class IterationTests(unittest.TestCase):
+    def passed_state(self, project: Path, through: str) -> None:
+        order = ["intake", "problem-analysis", "model-design", "computation"]
+        state_path = project / ".cumcm" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        for stage in order[: order.index(through) + 1]:
+            state["stages"][stage] = "passed"
+        state["current_stage"] = through
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def test_reopening_a_stage_is_one_command_and_invalidates_downstream(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            self.passed_state(project, "computation")
+            for stage in ("intake", "problem-analysis", "model-design", "computation"):
+                done = run_script("record_decision.py", "--project", str(project), "--stage", stage,
+                                  "--decision", "accepted", "--decision-id", f"DEC-{stage}",
+                                  "--reviewer", "fixture", "--task-turn-ref", "t1", "--summary", f"accepted {stage}")
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertTrue((project / ".cumcm" / "snapshots" / "computation.json").is_file())
+
+            reopened = run_script("record_decision.py", "--project", str(project), "--stage", "model-design",
+                                  "--decision", "revision_requested", "--decision-id", "DEC-REOPEN",
+                                  "--reviewer", "fixture", "--task-turn-ref", "t2", "--summary", "model must change")
+            self.assertEqual(reopened.returncode, 0, reopened.stdout + reopened.stderr)
+            state = json.loads((project / ".cumcm" / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["current_stage"], "model-design")
+            self.assertEqual(state["stages"]["model-design"], "needs_revision")
+            self.assertEqual(state["stages"]["computation"], "needs_revision")
+            self.assertFalse((project / ".cumcm" / "snapshots" / "computation.json").exists())
+            self.assertTrue((project / ".cumcm" / "snapshots" / "intake.json").is_file())
+            # reopening is a normal state, not an error state
+            findings, _ = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+    def test_an_optional_contract_never_blocks_a_decision_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.assertFalse((project / "model" / "CROSS_QUESTION_LEDGER.json").exists())
+            done = run_script("record_decision.py", "--project", str(project), "--stage", "model-design",
+                              "--decision", "accepted", "--decision-id", "DEC-MD",
+                              "--reviewer", "fixture", "--task-turn-ref", "t1", "--summary", "accepted")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_exploratory_runs_do_not_invalidate_an_accepted_computation_decision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            self.passed_state(project, "computation")
+            for stage in ("intake", "problem-analysis", "model-design", "computation"):
+                run_script("record_decision.py", "--project", str(project), "--stage", stage,
+                           "--decision", "accepted", "--decision-id", f"DEC-{stage}",
+                           "--reviewer", "fixture", "--task-turn-ref", "t1", "--summary", "accepted")
+            _, before = check_project(project, "computation")
+            self.assertIn("computation", before["stages_with_current_decision"])
+            run_script("record_run.py", "--project", str(project), "--run-id", "RUN-LATER",
+                       "--", sys.executable, "code/solve.py")
+            _, after = check_project(project, "computation")
+            self.assertIn("computation", after["stages_with_current_decision"])
+
+
+class CompileRecorderTests(unittest.TestCase):
+    @unittest.skipIf(shutil.which("xelatex") is None, "xelatex is not installed")
+    def test_record_compile_reads_page_count_hash_and_log_checks_from_the_engine(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            (project / "paper").mkdir(exist_ok=True)
+            (project / "paper" / "main.tex").write_text(MINIMAL_TEX, encoding="utf-8")
+            manifest = envelope("latex_template_manifest")
+            manifest.update({
+                "template_id": "test-minimal", "template_version": "0.6.0", "mode": "contest_ctex",
+                "engine": "xelatex", "competition": "CUMCM", "competition_year": 2026,
+                "official_compliance": "unverified", "official_template_source": None,
+                "main_path": "paper/main.tex", "metadata_path": "paper/main.tex",
+                "section_files": [], "subproblem_sections": [], "required_files": ["paper/main.tex"],
+                "placeholder_markers": ["CUMCM-TODO"], "template_source": "test",
+            })
+            write_json(project, "paper/LATEX_TEMPLATE_MANIFEST.json", manifest)
+            compiled = run_script("record_compile.py", "--project", str(project))
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            receipt = json.loads((project / "delivery" / "COMPILE_RECEIPT.json").read_text(encoding="utf-8"))
+            attempt = receipt["attempts"][0]
+            self.assertEqual(attempt["exit_code"], 0)
+            self.assertEqual(attempt["page_count"], 1)
+            self.assertEqual(attempt["glyph_check"], "pass")
+            self.assertEqual(len(attempt["pdf_sha256"]), 64)
+            self.assertEqual(receipt["source_snapshot"]["entrypoint"], "paper/main.tex")
+            self.assertTrue((project / attempt["pdf_path"]).is_file())
+            self.assertTrue((project / "delivery" / "compile.log").is_file())
+
+    @unittest.skipUnless(ctex_available(), "the ctex document class is not installed")
+    def test_record_compile_derives_page_count_and_layout_checks_from_the_engine(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            plan = envelope("paper_plan")
+            plan.update({
+                "claim_selection": [{"claim_id": "CLM-Q1-001", "subproblem_id": "Q1", "purpose": "answer Q1"}],
+                "representation_plan": [],
+                "paper_structure": [{"section_id": "SEC-Q1", "title": "候选集枚举", "purpose": "answer Q1",
+                                     "subproblem_ids": ["Q1"], "claim_ids": ["CLM-Q1-001"]}],
+            })
+            write_json(project, "paper/PAPER_PLAN.json", plan)
+            init = run_script("init_latex_paper.py", "--project", str(project), "--competition-year", "2026",
+                              "--title", "候选集枚举下的最小成本", "--keywords", "枚举; 最小成本; 候选集")
+            self.assertEqual(init.returncode, 0, init.stdout + init.stderr)
+            compiled = run_script("record_compile.py", "--project", str(project))
+            self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+            receipt = json.loads((project / "delivery" / "COMPILE_RECEIPT.json").read_text(encoding="utf-8"))
+            attempt = receipt["attempts"][0]
+            self.assertEqual(attempt["exit_code"], 0)
+            self.assertGreaterEqual(attempt["page_count"], 1)
+            self.assertEqual(attempt["glyph_check"], "pass")
+            self.assertTrue(attempt["pdf_sha256"])
+            self.assertEqual(receipt["source_snapshot"]["entrypoint"], "paper/main.tex")
+            self.assertTrue((project / attempt["pdf_path"]).is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,27 +1,34 @@
 ---
 name: cumcm-workflow
-description: Build or resume a contest-ready CUMCM project from official files through modeling, one selected computation backend, bounded validation, fresh-context paper writing, and final delivery. Use for real CUMCM work; do not use for ordinary paper polishing or unsupported one-shot answers.
+description: Build or resume a contest-ready CUMCM project from official files through modeling, one selected computation backend, bounded independent validation, fresh-context paper writing, and final delivery. Use for real CUMCM work; do not use for ordinary paper polishing or unsupported one-shot answers.
 ---
 
 # CUMCM Workflow
 
-Run a contest-native workflow whose important claims remain traceable to official sources and successful computation without turning every draft into an audit package.
+Keep the claims that matter traceable to official sources and to real execution, without turning every draft into an audit package.
+
+Two rules shape everything below:
+
+1. **Tooling records machine facts; you write judgement.** Never type a hash, a page count, an exit code, a source snapshot, or a result value. `record_run.py`, `index_result.py`, `record_compile.py` and `refresh_evidence.py` observe those. You write problem facts, the model, claims, and the paper.
+2. **The model is chosen late, and the choice is earned.** Working mode accepts a draft model contract. You name candidate models, say what evidence would tell them apart, evaluate them with cheap exploratory runs, and only then select one and freeze the contract.
 
 ## Start or resume
 
-1. Locate `.cumcm/state.json`. Resume an exact `0.5.0` project. For a v0.4 workspace, offer `scripts/migrate_v04_to_v05.py`; migration copies into a new target, preserves the source, and requires claim-bearing computation to be rerun before finalizing.
-2. If no state exists and the user supplies official files, read [01-intake.md](references/01-intake.md), choose a safe target, and run `scripts/init_project.py`. Do not make the user assemble the command.
-3. Read only the active stage guide plus [handoffs.md](references/handoffs.md) when crossing stages. A fresh task reads its handoff first, not the entire workspace or old conversation.
-4. Keep the six responsibilities distinct: orchestrator, modeling, computation, validation, paper, and delivery. Do not simulate separation by inventing many small Skills.
+1. Locate `.cumcm/state.json`. Resume an exact `0.6.0` project. Older workspaces are not supported; start a new project from the official files.
+2. If no state exists and the user supplies official files, read [01-intake.md](references/01-intake.md), choose a safe target, and run `scripts/init_project.py` for them. Do not make the user assemble the command.
+3. Read only the active stage guide plus [handoffs.md](references/handoffs.md) when crossing stages. A fresh task reads its handoff first, not the whole workspace.
+4. Keep the six responsibilities distinct: orchestrator, modeling, computation, validation, paper, delivery. Do not simulate separation by inventing many small Skills.
 
-## Modes
+## The two knobs
 
-- `working`: fast modeling, computation, debugging, and revision. Enforce official-input protection, real execution, exact result locators, code/output provenance, and non-fabrication. Missing final paper artifacts, review polish, or optional analyses do not block exploration.
-- `finalizing`: freeze claim-bearing results, require current stage decisions and snapshots, fresh handoffs, bounded independent review, paper/PDF QA, and delivery binding.
+`mode` (in state) decides what must be complete. `--gate-mode` decides whether human gates count.
 
-`strict` and `sprint` remain compatible check profiles, but mode controls when formal gates apply. `enforce` in `working` reports `working_ready`; it is not a formal stage approval. In `finalizing`, `enforce` cannot pass unless every stage through the requested stage is marked `passed` and has a current accepted decision.
+- `working`: fast modeling, exploratory computation, debugging. Official-input protection, real execution, exact result locators and non-fabrication are enforced. A draft model contract is enough; `CROSS_QUESTION_LEDGER.json` is optional; stage ordering is advisory. `enforce` here reports `working_ready`, never a formal approval.
+- `finalizing`: freeze claim-bearing results. The model contract must be complete and its verification plan must map to assertions an official run recorded. Requires current stage decisions and snapshots, fresh handoffs, bounded independent review, paper/PDF QA and delivery binding. `enforce` cannot pass unless every stage through the requested one is `passed` with a current accepted decision.
 
-Switch modes with `scripts/set_mode.py`; entering finalizing reports the current preflight gaps instead of inventing approvals.
+Switch with `scripts/set_mode.py`. There is no `strict`/`sprint` profile in v0.6; a single rule set applies.
+
+Stage statuses are `not_started`, `in_progress`, `passed`, `needs_revision`.
 
 ## Roles and handoffs
 
@@ -33,54 +40,113 @@ Switch modes with `scripts/set_mode.py`; entering finalizing reports the current
 | Paper | [06-paper-writing.md](references/06-paper-writing.md), [latex-template.md](references/latex-template.md) | `paper-delivery` |
 | Delivery | [07-compile-delivery.md](references/07-compile-delivery.md) | final package |
 
-Build handoffs with `scripts/build_handoff.py`. They contain canonical paths, compact downstream payloads, and an upstream digest. Do not copy full logs, failed runs, debug history, or old review conversations. A stale digest requires rebuilding the handoff. The paper→delivery handoff names the reviewed PDF, its compile-bound editable LaTeX snapshot, the formal computation source chain, and current official paper materials so a fresh delivery task does not rediscover them.
+Build handoffs with `scripts/build_handoff.py`. They carry canonical paths, a compact downstream payload, and an upstream digest. Never copy full logs, failed runs, debug history, or old review conversations. A stale digest requires rebuilding.
+
+## Choosing the model
+
+Model design does not pick a model. It proposes candidates and says how the choice will be settled:
+
+```json
+"candidates": [
+  {"candidate_id": "CAND-ENUM", "method": "complete enumeration",
+   "why_considered": "the declared policy class is finite and small",
+   "discriminating_evidence": ["whether the greedy pick equals the enumerated minimum"],
+   "status": "under_evaluation"},
+  {"candidate_id": "CAND-GREEDY", "method": "greedy first-fit",
+   "why_considered": "constant time, adequate if the set is already ordered by cost",
+   "discriminating_evidence": ["whether the greedy pick equals the enumerated minimum"],
+   "status": "under_evaluation"}
+]
+```
+
+Then settle it with evidence rather than with an opinion:
+
+```bash
+python3 scripts/record_run.py --project <p> --candidate CAND-ENUM   -- python3 code/enum.py
+python3 scripts/record_run.py --project <p> --candidate CAND-GREEDY -- python3 code/greedy.py
+```
+
+Set the winner to `status: "selected"`, the others to `"rejected"`, give each a `decision_rationale` that refers to what those runs showed, and list the runs in `evaluation_run_ids`. Only then does the selected model get an official run.
+
+The checker holds you to it: exactly one candidate may end up `selected` (`MODEL-E013`), a selection must cite a run that evaluated it (`MODEL-W014`), a selected or rejected candidate needs a recorded reason (`MODEL-E014`), and a candidate with nothing to tell it apart is flagged (`MODEL-W012`). In `working` these are warnings; freezing turns them into errors. `cumcm_check.py` prints the comparison under `model_candidates`.
+
+Two things this deliberately does not do: it does not require more than one candidate when one is obviously right (that is `MODEL-W007`, a warning), and it does not judge which candidate is better — it only insists that the choice was made against recorded evidence.
+
+## Recording computation
+
+```bash
+# exploration costs nothing to record
+python3 scripts/record_run.py --project <p> -- python3 code/try.py
+
+# freezing a run for formal results costs a few declarations
+python3 scripts/record_run.py --project <p> --official \
+  --capability CAP-Q1-001 --source code/solve.py \
+  --input data/q1.csv:formal --output results/q1.json:claim \
+  --assert "feasibility=pass" -- python3 code/solve.py
+
+# the value is read out of the output, never transcribed
+python3 scripts/index_result.py --project <p> --result-id RES-Q1-001 \
+  --run RUN-Q1-001 --locator results/q1.json#/minimum_cost \
+  --name "Minimum cost" --unit CNY --scope "declared candidates only"
+
+# after editing the code, one command re-executes and re-binds
+python3 scripts/record_run.py --project <p> --rerun RUN-Q1-001 --official
+python3 scripts/index_result.py --project <p> --refresh
+```
+
+Exploratory runs are recorded, never trusted, and never block: a failed assertion or a non-zero exit inside one is a fact about the experiment, not about the formal chain. Only a successful `official_run: true` run may support a formal result.
+
+## Choosing one backend
+
+Project state defaults to `{"preferred":"matlab","fallback":"python","selection":"auto"}`. Use `scripts/backend_selection.py` or the same criteria: numerical methods, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV, machine learning, available toolboxes, existing code, complexity, runtime stability. MATLAB preference breaks ties only. An unavailable preferred backend may fall back; an unavailable task `required_backend` must fail. Implement and officially run one language. Do not build parity implementations unless the user asks.
 
 ## Evidence gates
 
-Treat findings by consequence:
+- hard invariant / `P0`: wrong data or computation, task mismatch, unsupported key claim, code/result disagreement, stale provenance, fabricated approval or review, simulated data presented as observed, final-version mismatch. These block.
+- warning / `P1`: strong assumptions, weak baseline, incomplete validation or sensitivity, limited fit, thin section. Visible, never blocking.
+- suggestion / `P2`: wording, layout, optional chart, extra experiment. Not in the gate.
 
-- hard invariant / `P0`: wrong data or computation, task mismatch, unsupported key claim, code/result disagreement, stale provenance, fabricated approval/review, simulated data presented as observed, or final-version mismatch. These block.
-- warning / `P1`: strong assumptions, weak baseline, incomplete validation or sensitivity, limited model fit, or a thin section. These remain visible but do not block.
-- suggestion / `P2`: wording, layout, optional chart, or extra experiment. These do not enter the gate.
+Independent validation uses `accepted`, `accepted_with_concerns`, `revision_required`, `inconclusive`. Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to a targeted re-review of exactly those findings.
 
-Independent validation uses `accepted`, `accepted_with_concerns`, `revision_required`, or `inconclusive`. Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of those findings. A genuinely new P0 may still block; P1/P2 findings do not grow an endless blocking queue.
+The review package copies only canonical evidence for formally indexed results and records `context_excluded` — the prior reasoning it physically left out. It does not claim the reviewer holds no opinion. The result template leaves every independence field `null`: the reviewer or the user must assert them, and a null fails `IREVIEW-E027`.
 
-The independent review package contains only canonical evidence for formally indexed results: official inputs, problem/model contracts, `RESULTS_INDEX.json`, cited successful official runs, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Exclude failed/exploratory runs, stdout/stderr, full logs, and debug history. Targeted packages must carry the compact self-contained `TARGETED_FINDINGS.json`; do not copy the full prior review into the package. When building the paper brief, merge the compact structured review lineage newest-first so unresolved/accepted P1 findings from the full review survive a targeted P0-only result; resolved findings do not.
+## Iterating
 
-## Computation backend
+Reopening an upstream stage is one command, not a hand-edit of `state.json`:
 
-Project state defaults to:
-
-```json
-{"preferred":"matlab","fallback":"python","selection":"auto"}
+```bash
+python3 scripts/record_decision.py --project <p> --stage model-design \
+  --decision revision_requested --decision-id DEC-007 --reviewer <name> \
+  --task-turn-ref <ref> --summary "Q2 model does not fit the observed regime"
 ```
 
-Use `scripts/backend_selection.py` or the same criteria to choose one backend for each official task. Consider numerical methods, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV work, machine learning, available toolboxes/packages, existing code, complexity, and runtime stability. MATLAB preference breaks ties; it is not mandatory. Detect MATLAB from explicit `implementation.matlab_executable`, PATH, then macOS `/Applications/MATLAB_R*.app/bin/matlab`. An unavailable preferred backend may fall back; an unavailable task `required_backend` must fail. Once selected, implement and officially run one language only. Do not create parity implementations unless the user explicitly requests them.
+That invalidates the stage and everything downstream. To find out what a change actually costs before you redo anything:
 
-Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs, outputs, assertions, and `official_run: true`. Results may cite only successful official runs and exact `path#JSON-pointer` values.
+```bash
+python3 scripts/plan_redo.py --project <p> --changed code/solve_q2.py
+```
+
+`plan_redo.py` walks `source -> official run -> result -> claim -> section -> PDF` and names the specific runs, findings and sections that are affected — and the ones that are not. It never suppresses a check; `cumcm_check.py` still validates everything through the requested stage, because that is cheap. The expensive work is re-running, re-reviewing and re-writing, and that is what the plan scopes.
 
 ## Contest invariants
 
-- Preserve and byte-identify official sources. OCR routes attention; rendered pages decide formulas, tables, and ambiguous notation.
+- Preserve and byte-identify official sources. OCR routes attention; rendered pages decide formulas, tables and ambiguous notation.
 - Never invent observed data, approvals, independent review, or successful execution. Label genuine simulations and record their generator and seed.
-- Keep mathematical model and result contracts language-neutral.
+- Keep the mathematical model and result contracts language-neutral.
 - Use SHA-256 only for evidence-critical identity: official sources, formal inputs, claim-bearing outputs, compact snapshots/handoffs, review packages, selected source trees, and the reviewed final PDF.
-- Keep internal IDs, evidence states, local paths, run coverage, and workflow language out of the visible paper.
-- Paper handoff limitations come only from supported paper-eligible claim limitations, current P1 concerns, and explicit applicability/assumption/known-limitation fields—not contradicted claims or model scope. The paper task reads [06-paper-writing.md](references/06-paper-writing.md), makes `paper_structure` the semantic source of truth, and selects prose, equation, table, or figure by claim function. Reference papers are style priors only. A declared official paper template must be adopted/adapted before the generic scaffold; rule or submission-instruction documents do not block generic initialization and keep compliance unverified. No minimum figure/page count is a hard gate.
+- Keep internal IDs, evidence states, local paths, run coverage and workflow language out of the visible paper.
+- Paper handoff limitations come only from supported paper-eligible claim limitations, current P1 concerns, and explicit applicability/assumption/known-limitation fields — not contradicted claims or model scope.
 - Bind the final PDF to its reviewed bytes and to the exact editable LaTeX source snapshot used for compilation.
 - Missing current official rules or templates blocks delivery; it does not authorize autonomous search or submission.
 - Final delivery contains the reviewed PDF, editable LaTeX, and computation source as separate roles.
 
 Read [artifact-contracts.md](references/artifact-contracts.md) when creating machine-readable files and [evidence-rules.md](references/evidence-rules.md) before model selection, review, or paper claims.
 
-## Validate and revalidate
+## Validate
 
 ```bash
-python3 scripts/cumcm_check.py --project <project> \
-  --stage <stage> --profile strict --gate-mode enforce
+python3 scripts/cumcm_check.py --project <project> --stage <stage> --gate-mode enforce
 ```
-
-For a known change, add repeated `--changed <path>` and one `--impact cosmetic|local|semantic|claim_changing|global`. The report gives the affected stages rather than defaulting to a full-workspace audit. Accepted decisions automatically create `.cumcm/snapshots/<stage>.json`; unchanged snapshots appear as trusted in the report. Hard invariants are still checked even when a snapshot is trusted.
 
 Record a decision only after showing the exact artifact and receiving the decision:
 
@@ -90,4 +156,4 @@ python3 scripts/record_decision.py --project <project> --stage <stage> \
   --task-turn-ref <ref> --summary <visible-summary>
 ```
 
-Passing establishes current structure, provenance, successful execution, and recorded review boundaries. It does not prove mathematical correctness or global optimality.
+Passing establishes current structure, provenance, successful execution and recorded review boundaries. It does not prove mathematical correctness or global optimality.

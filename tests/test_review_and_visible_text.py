@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-from test_v03_paper_quality import build_valid_v04_project
+from test_paper_pipeline import build_paper_ready_project
 from test_workflow_core import build_valid_project, write_json
 
 from build_independent_review_package import build as build_review_package
@@ -15,7 +15,7 @@ from paper_visible_text_check import inspect_text
 from workflow_checks import check_project
 
 
-class V04ContractTests(unittest.TestCase):
+class ReviewAndVisibleTextTests(unittest.TestCase):
     def test_same_context_review_cannot_pass_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -30,29 +30,29 @@ class V04ContractTests(unittest.TestCase):
                 }
             )
             write_json(root, "validation/INDEPENDENT_REVIEW_RESULT.json", data)
-            findings, _ = check_project(root, "validation", "strict")
+            findings, _ = check_project(root, "validation")
             self.assertIn("IREVIEW-E009", {item.rule_id for item in findings})
 
     def test_missing_delivery_role_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "delivery" / "DELIVERY_MANIFEST.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             del data["deliverables"]["computation_source"]
             write_json(root, "delivery/DELIVERY_MANIFEST.json", data)
-            findings, _ = check_project(root, "delivery", "strict")
+            findings, _ = check_project(root, "delivery")
             self.assertIn("DELIVERY-E015", {item.rule_id for item in findings})
 
     def test_missing_user_material_blocks_without_network_fallback(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "delivery" / "DELIVERY_MANIFEST.json"
             data = json.loads(path.read_text(encoding="utf-8"))
             data["source_policy"]["missing_user_materials"] = ["current official format rules"]
             write_json(root, "delivery/DELIVERY_MANIFEST.json", data)
-            findings, _ = check_project(root, "delivery", "strict")
+            findings, _ = check_project(root, "delivery")
             self.assertIn("DELIVERY-E014", {item.rule_id for item in findings})
 
     def test_internal_ids_and_workflow_states_are_visible_text_errors(self):
@@ -81,7 +81,7 @@ class V04ContractTests(unittest.TestCase):
             manifest_path = build_review_package(root)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertTrue((root / manifest["review_skill_path"]).is_file())
-            self.assertTrue(manifest["conclusions_withheld"])
+            self.assertEqual(sorted(manifest["context_excluded"]), ["debug_history", "failed_runs", "originating_task_transcript", "prior_review_prose"])
             self.assertEqual(manifest["reviewer_selection"]["status"], "unreviewed")
 
 

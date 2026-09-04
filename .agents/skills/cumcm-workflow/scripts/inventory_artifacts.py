@@ -96,18 +96,11 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     payload = {
-        "schema_version": "0.5.0",
+        "schema_version": "0.6.0",
         "artifact_type": "source_manifest",
         "project_id": args.project_id,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.5.0"},
-        "review": {
-            "decision": "unreviewed",
-            "reviewer": None,
-            "reviewed_at": None,
-            "scope": None,
-            "notes": None,
-        },
+        "producer": {"kind": "script", "name": "inventory_artifacts.py", "version": "0.6.0"},
         "sources": records,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

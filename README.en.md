@@ -1,250 +1,195 @@
-# CUMCM Codex Workflow
+# CUMCM Workflow
 
 English | [简体中文](README.md)
 
-A contest-native, evidence-focused, low-friction Codex workflow for the China Undergraduate Mathematical Contest in Modeling.
+A contest-native, evidence-focused, low-friction agent workflow for the China Undergraduate Mathematical Contest in Modeling. Runs under both **Codex** and **Claude Code**.
 
-> Current release: **v0.5**. Passing checks establishes current provenance, execution, and workflow consistency—not mathematical correctness.
+> Current version: **v0.6**. Passing the checks proves that provenance, execution records and the workflow agree — not that the mathematical model is correct. v0.6 does not support older workspaces.
 
-## 1. Why v0.5
+## 1. What v0.6 is about
 
-v0.5 keeps the strongest parts of v0.4—official-source protection, executed computation, exact result locators, claim-bearing output tracking, final-PDF binding, decision records, reproducibility, and limitations—while removing audit-shaped friction from ordinary contest work.
+**Tooling records machine facts; the agent writes judgement.**
 
-- Hard invariants remain blocking.
-- Model-strength concerns become warnings.
-- Presentation suggestions do not enter the gate.
-- Paper writing moves to a fresh-context task through a compact handoff.
-- MATLAB and Python are selected by task fit; one official task uses one official implementation by default.
-- Approved unchanged stages use trusted snapshots instead of repeated full review.
+Hashes, `sha256-tree-v1` source snapshots, argv, exit codes, PDF page counts, overfull boxes and missing glyphs from the engine log, values resolved through a locator — all observed by scripts. You write the problem facts, the model, the claims and the paper.
+
+The second change follows from the first: **the model is chosen late, and the choice is earned.**
+
+```text
+Problem Analysis
+      │
+      ▼
+Model Design ─────► candidate A / candidate B
+      │             · why each is worth considering
+      │             · what evidence would tell them apart
+      ▼
+Computation ──────► cheap exploratory evaluation
+      │             record_run.py --candidate CAND-A
+      ▼
+select A ─────────► status: selected, with a rationale
+      │             citing the runs that evaluated it
+      ▼
+A earns the official computation
+      ▼
+Validation
+```
+
+That chain is structural, not advice: exactly one candidate may end up `selected` (`MODEL-E013`), a selection must cite a run that evaluated it (`MODEL-W014`), selecting or rejecting needs a recorded reason (`MODEL-E014`), and a candidate with no discriminating observation is flagged (`MODEL-W012`). Warnings while `working`, errors once frozen. `cumcm_check.py` prints the comparison under `model_candidates`.
+
+| | v0.5 | v0.6 |
+|---|---|---|
+| JSON Schemas | 22 | 21 |
+| Scripts | 15 | 21 |
+| Hand-written contracts | 14 | 9 |
+| State knobs | mode × profile × gate-mode | mode × gate-mode |
+| Stage statuses | 6 | 4 |
 
 ## 2. Architecture
 
 ```text
 orchestrator
   -> modeling
-  -> computation (MATLAB or Python)
+  -> computation (MATLAB or Python; exploratory ⇄ revision -> official run)
   -> independent validation
   -> fresh paper task
   -> delivery
 ```
 
-These are responsibilities, not a large collection of micro-Skills. The main `cumcm-workflow` Skill routes the work; the existing packaged Reviewer Skill handles context-separated validation.
+These are responsibility boundaries, not a pile of small Skills. The main `cumcm-workflow` Skill routes; the Reviewer Skill shipped inside the review package performs context-separated validation.
 
-Recommended contest progression:
-
-| Stage | Main work | Canonical artifact | How the next task takes over |
+| Stage | Job | Canonical artifacts | Written by |
 |---|---|---|---|
-| `intake` | protect and inventory the official problem, attachments, and format files | `SOURCE_MANIFEST.json` | the modeling task reads official materials |
-| `problem-analysis` | decompose subproblems, facts, ambiguities, assumptions, and acceptance targets | `PROBLEM_FACTS.json`, `TASK_CAPABILITIES.json` | continue to model design |
-| `model-design` | define the mathematical model, scope, I/O, and validation plan | `MODEL_CONTRACT.json` | build the modeling→computation handoff |
-| `computation` | select MATLAB or Python, implement once, and execute for real | official run, `RESULTS_INDEX.json` | build the computation→validation handoff and review package |
-| `validation` | independently check P0 and record P1/P2 concerns | review result, `CLAIM_LEDGER.json` | build the compact validation→paper handoff |
-| `paper` | select claims and representations, write, and perform PDF QA | paper plan, LaTeX, QA sidecars, PDF | build the paper→delivery handoff |
-| `delivery` | freeze the submission against user-supplied official rules | PDF, editable LaTeX, computation source | deliver after human confirmation |
+| `intake` | preserve and inventory official files | `SOURCE_MANIFEST.json` | `init_project.py` |
+| `problem-analysis` | subproblems, facts, ambiguities, acceptance targets | `PROBLEM_FACTS.json`, `TASK_CAPABILITIES.json` | agent |
+| `model-design` | propose candidates and their discriminators; freeze once one is selected | `MODEL_CONTRACT.json` (draft while working) | agent |
+| `computation` | pick one backend, explore, then freeze the official run | `RUN_MANIFEST.json`, `RESULTS_INDEX.json` | `record_run.py`, `index_result.py` |
+| `validation` | independent P0 check, record P1/P2 | review package/result, `CLAIM_LEDGER.json` | scripts + agent |
+| `paper` | select claims and representations, write, QA the PDF | `PAPER_PLAN.json`, LaTeX, QA sidecars, PDF | agent + `init_latex_paper.py`, `record_compile.py` |
+| `delivery` | freeze the submission against official rules | `COMPILE_RECEIPT.json`, `DELIVERY_MANIFEST.json` | `record_compile.py` + agent |
 
-Modeling, computation, validation, and paper should normally use separate fresh tasks. A new task reads its handoff first and opens only the listed canonical artifacts as needed; it should not begin by scanning the full workspace and old conversation.
+Four cross-stage interfaces only: `modeling-computation`, `computation-validation`, `validation-paper`, `paper-delivery`. A fresh task reads its handoff first.
 
-The durable interfaces are four handoffs:
+## 3. Two knobs
 
-```text
-modeling-computation
-computation-validation
-validation-paper
-paper-delivery
-```
+v0.6 deleted the `strict`/`sprint` profile. `mode` (in state) decides what must be complete; `--gate-mode` decides whether human gates count toward blocking.
 
-## 3. Modes and evidence gates
+- `working`: official-input protection, real execution before citation, exact locators, non-fabrication. A draft model contract is enough, `CROSS_QUESTION_LEDGER.json` is optional, stage ordering is advisory.
+- `finalizing`: frozen model contract, stage decisions and snapshots, fresh handoffs, bounded independent review, paper/PDF QA, delivery binding.
 
-`working` is the default. It protects official inputs, requires real execution before citation, checks source/result provenance and exact locators, and prevents fabricated data or approvals. It does not require final paper artifacts, full review polish, or optional validation during exploration.
+Stage statuses: `not_started`, `in_progress`, `passed`, `needs_revision`.
 
-`finalizing` freezes claim-bearing results and activates accepted stage decisions/snapshots, fresh handoffs, independent validation, paper/PDF QA, and delivery binding.
+Findings are graded by consequence: hard invariant / `P0` blocks; `P1` (assumptions, baselines, sensitivity — and **everything about exploratory runs**) stays visible; `P2` never enters the gate.
 
-Findings are classified by consequence:
-
-| Level | Meaning | Gate |
-|---|---|---|
-| Hard invariant / P0 | real data/computation error, task mismatch, unsupported key claim, stale provenance, fabricated review, or final-version mismatch | blocking |
-| Warning / P1 | assumptions, baseline, model fit, sensitivity, or validation concern | non-blocking |
-| Suggestion / P2 | wording, optional chart, layout refinement, or extra experiment | outside the gate |
-
-`enforce` cannot be bypassed by editing state: in finalizing mode, every stage through the requested stage must be `passed` and covered by a current accepted decision.
-
-## 4. Fresh tasks and handoffs
-
-`build_handoff.py` creates a compact `HANDOFF.json` with canonical artifact paths/hashes, an upstream digest, and a stage-specific payload. It excludes full logs, failed runs, debug transcripts, and old review conversations.
-
-The paper handoff contains:
-
-- problem and model summaries;
-- verified results and selected claims;
-- limitations only from supported paper-eligible claims, unresolved/accepted P1 concerns from the current review lineage, and model applicability, assumptions, and known limitations (contradicted/unsupported claims and model `scope` do not contaminate the brief);
-- proactive `representation_candidates` for trends, multi-group comparisons, distributions, sensitivity, model performance, and spatial/network/clustering structure; the fresh paper task chooses prose, equation, table, or figure;
-- official paper templates, format/submission rules, and unclassified materials distinguished by metadata.
-
-Targeted re-review remains focused on the original P0 findings. When the paper handoff is built, structured `previous_review_path` lineage is merged newest-first, so still-open/accepted P1 concerns from the full review survive and resolved findings do not.
-
-The `paper-delivery` handoff additionally names the reviewed final PDF, the compile-bound editable LaTeX source snapshot, computation source selected through `RESULTS_INDEX → successful official run → source snapshot`, and current official materials/compliance status. A fresh Delivery task does not rescan run or debug history.
-
-A new task reads the handoff first. If a canonical upstream artifact changes, the handoff becomes stale and must be rebuilt.
-
-Example task boundaries:
-
-```text
-Modeling task: finish problem decomposition and the model contract; build modeling-computation.
-Computation task: read the handoff, select one backend, execute, and index results.
-Validation task: use the independent package for full/targeted review without debug history.
-Paper task: read validation-paper and start from verified claims and representations.
-```
-
-## 5. Independent validation
-
-The first review is full and context-separated. By default, the package copies only canonical evidence: official inputs, problem/model contracts, `RESULTS_INDEX.json`, successful official runs cited by formal results, their source snapshots, formal inputs, claim-bearing outputs, and review instructions. Failed/exploratory runs, stdout/stderr, full logs, and debug history are excluded from both the package and its package/upstream freshness digest. The user records different originating/reviewer task references. Same-model fresh-context review remains correlated; task metadata improves evidence but cannot prove human or model independence cryptographically.
-
-Verdicts are:
-
-- `accepted`
-- `accepted_with_concerns`
-- `revision_required`
-- `inconclusive`
-
-Only an open P0 permits `revision_required`. After a full review finds P0 issues, the next package defaults to targeted re-review of every prior open P0 and embeds a self-contained `TARGETED_FINDINGS.json` containing only finding ID, category, location, evidence, and recommendation—not the full prior review. New P1/P2 findings remain non-blocking; a genuinely new evidenced P0 may still block.
-
-## 6. MATLAB and Python
-
-New projects default to:
-
-```json
-{"preferred":"matlab","fallback":"python","selection":"auto"}
-```
-
-MATLAB preference is a tie-break, not a mandate. Selection considers numerical linear algebra, optimization, ODE/PDE, signal processing, data cleaning, Excel/CSV processing, machine learning, toolboxes/packages, existing code, complexity, and runtime stability.
-
-MATLAB executable detection checks, in order: explicit project `implementation.matlab_executable`, `matlab` on PATH, then macOS `/Applications/MATLAB_R*.app/bin/matlab` (newer releases first). An unavailable preferred/selected backend may fall back with a recorded reason; an unavailable task `required_backend` raises an error and never silently switches.
-
-Once selected, only that backend is officially implemented and run. Python/MATLAB parity is created only when explicitly requested.
-
-Every official run records the selected language, rationale, runtime, dependencies/toolboxes, entry point, source-tree snapshot, command, logs, inputs/outputs, assertions, and `official_run: true`. Formal results may reference only a successful official run. The computation handoff, independent package, and Delivery source selection share one canonical resolver; a missing, failed, non-official, or stale-source link fails explicitly everywhere.
-
-## 7. Paper and LaTeX
-
-The paper sequence is:
-
-```text
-verified results
-  -> claim selection
-  -> prose/equation/table/figure planning
-  -> generate representations
-  -> paper structure
-  -> LaTeX writing
-  -> rendered PDF QA
-```
-
-`PAPER_PLAN.paper_structure` is the source of truth for body-section titles, purposes, covered subproblems, supported claims, and order. The LaTeX initializer only converts it into section files and `main.tex` input order: one section may serve several subproblems, and one complex subproblem may span several mathematically meaningful sections. It no longer generates a fixed three-subsection tree per question. The abstract follows problem -> core method -> key result -> meaning/validation, and keywords come from the actual object, model, or method.
-
-Every table or figure should solve a specific reading or evidence problem, such as fit, residual structure, comparison, sensitivity, convergence, or robustness, and must use existing computation/validation evidence. Paper writing does not invent experiments for polish, and there is no minimum figure or page count. A metadata-declared official paper template is adopted or adapted first; a rule/instruction PDF, DOC, or DOCX does not block the generic scaffold merely by existing, while compliance remains `unverified`. High-quality reference papers provide transferable principles only. The initializer requires an actual problem title and actual keywords rather than reader-facing generic defaults.
-
-Final QA checks captions, tables, equations, page density, figure placement, fonts/glyphs, overflow, clipping, whitespace, and cross-page continuity. Internal IDs, evidence states, local paths, and workflow language remain blocking visible-text leaks; excessive precision and number-dense sentences are warnings.
-
-The compile receipt binds the reviewed PDF to the exact editable LaTeX source-tree snapshot.
-
-## 8. Start, check, and migrate
-
-### Start in three steps
-
-1. Initialize from a Codex conversation by supplying the official local path:
-
-```text
-Use $cumcm-workflow to initialize a CUMCM project from /absolute/path/to/2026B.
-```
-
-2. In `working`, complete modeling, backend selection, and official computation; build a handoff whenever responsibility changes.
-
-3. When results stabilize, enter `finalizing` and complete validation, a fresh paper task, PDF QA, and delivery.
-
-### Maintainer interfaces
+## 4. Recording computation
 
 ```bash
-python3 .agents/skills/cumcm-workflow/scripts/init_project.py \
-  --project /path/to/new-project --project-id CUMCM-2026-B \
-  --official /path/to/official-files
+S=.agents/skills/cumcm-workflow/scripts
 
-python3 .agents/skills/cumcm-workflow/scripts/cumcm_check.py \
-  --project /path/to/project --stage validation \
-  --profile strict --gate-mode enforce
+# exploration costs nothing to record
+python3 $S/record_run.py --project <p> -- python3 code/try.py
 
-python3 .agents/skills/cumcm-workflow/scripts/set_mode.py \
-  --project /path/to/project --mode finalizing
+# an exploratory run can also settle the model comparison
+python3 $S/record_run.py --project <p> --candidate CAND-A -- python3 code/try_a.py
 
-python3 .agents/skills/cumcm-workflow/scripts/build_handoff.py \
-  --project /path/to/project --transition validation-paper
+# freezing costs only the declarations the tool cannot infer
+python3 $S/record_run.py --project <p> --official --capability CAP-Q1-001 \
+  --source code/solve.py --input data/q1.csv:formal \
+  --output results/q1.json:claim --assert "feasibility=pass" -- python3 code/solve.py
 
-python3 .agents/skills/cumcm-workflow/scripts/build_independent_review_package.py \
-  --project /path/to/project --review-mode auto
+# the value is read back through the locator, never transcribed
+python3 $S/index_result.py --project <p> --result-id RES-Q1-001 --run RUN-Q1-001 \
+  --locator results/q1.json#/minimum_cost --name "Minimum cost" --unit CNY \
+  --scope "declared candidates only"
 
-python3 .agents/skills/cumcm-workflow/scripts/migrate_v04_to_v05.py \
-  --source /path/to/v04-workspace --target /path/to/v05-workspace
+# after a code change, one command re-executes and re-binds
+python3 $S/record_run.py --project <p> --rerun RUN-Q1-001 --official
+python3 $S/index_result.py --project <p> --refresh
 ```
 
-Migration copies into a new target, never edits the v0.4 source, starts in working mode, and marks migrated runs non-official until one selected backend is rerun successfully.
+Exploratory runs are recorded, never trusted, and never block. Only a successful `official_run: true` run may support a formal result.
 
-For scoped revalidation, add `--changed <path>` and `--impact cosmetic|local|semantic|claim_changing|global`.
+## 5. Iterating and scoped redo
 
-## 9. Hard invariants and provenance
+Reopening an upstream stage is one command, not a hand-edit of `state.json`:
 
-The following remain blocking:
+```bash
+python3 $S/record_decision.py --project <p> --stage model-design \
+  --decision revision_requested --decision-id DEC-007 --reviewer <name> \
+  --task-turn-ref <ref> --summary "the Q2 model does not fit the observed regime"
+```
 
-- official input mutation or identity mismatch;
-- simulated data presented as observed;
-- claim-bearing computation without a successful official run;
-- code-source snapshot, formal input, or claim-bearing output drift;
-- incorrect result locator or result/output mismatch;
-- stale independent-review package or stage handoff;
-- fabricated human approval or independent review;
-- open validation/paper P0;
-- unreadable or mismatched final PDF;
-- final PDF not bound to approved QA and editable source;
-- incomplete PDF/LaTeX/computation delivery roles.
+Then ask what the change actually costs:
 
-Accepted decisions automatically create lightweight stage snapshots. Unchanged snapshots are trusted; a changed key artifact invalidates that stage and downstream trust. Hard invariants are still checked.
+```bash
+python3 $S/plan_redo.py --project <p> --changed code/solve_q2.py
+```
 
-## 10. Repository and development
+`plan_redo.py` walks `official source -> fact -> capability` and `source -> official run -> result -> claim -> section -> PDF` and names the runs to re-run, the findings to re-review, the sections to rewrite — and the ones that are **not** affected. The deterministic check stays exhaustive because it is cheap; what gets scoped is re-running, re-reviewing and re-writing.
+
+## 6. Independent validation
+
+The first review is full and context-separated. The package copies only canonical evidence for formally indexed results and declares `context_excluded` — the originating task transcript, debug history, failed runs and prior review prose it physically left out. It does not claim the reviewer holds no conclusions.
+
+The result template ships with every independence field `null`; the reviewer or the user must assert them, and a null fails. Differing originating/reviewer task references are a paste guard, not proof.
+
+Verdicts: `accepted`, `accepted_with_concerns`, `revision_required`, `inconclusive`. Only an open P0 permits `revision_required`; the next package then defaults to a targeted re-review carrying a self-contained `TARGETED_FINDINGS.json`.
+
+## 7. One backend
+
+Default `{"preferred":"matlab","fallback":"python","selection":"auto"}`. MATLAB preference breaks ties only. Detection order: explicit `implementation.matlab_executable`, `matlab` on PATH, macOS `/Applications/MATLAB_R*.app/bin/matlab`. A preferred backend may fall back; a task `required_backend` must fail rather than switch. Implement and officially run one language.
+
+## 8. Paper and LaTeX
 
 ```text
-.agents/skills/cumcm-workflow/
-├── SKILL.md
-├── references/
-├── schemas/
-├── scripts/
-└── assets/
-docs/
-├── README.md
-├── architecture.md
-├── workflow-contract.md
-├── provenance.md
-├── migration-v0.4-to-v0.5.md
-├── v0.5-design.md
-└── limitations.md
-examples/
-tests/
-.github/workflows/ci.yml
+verified results -> claim selection -> prose/equation/table/figure planning
+  -> representations -> paper structure -> LaTeX -> rendered PDF QA
 ```
 
-Development validation:
+`PAPER_PLAN.paper_structure` is the source of truth for the body; the initializer only turns it into section files and `main.tex` input order.
+
+```bash
+python3 $S/record_compile.py --project <p> --update-quality
+```
+
+Compiles, hashes the PDF, reads the page count, rasterises every page into `.cumcm/tmp/pages/`, derives layout checks from the engine log, and refreshes the machine fields of `PAPER_QUALITY_REPORT.layout_review`. The decision stays yours — then actually look at the pages.
+
+v0.6 deleted `PAPER_TRACEABILITY.json` (the property it promised is measured directly on the PDF) and the eight-dimension self-attested quality matrix.
+
+## 9. Getting started
+
+1. Give the agent the official local path: *"use cumcm-workflow, initialise a contest project from /absolute/path/to/2026B"*.
+2. Work in `working` mode: explore with zero-flag `record_run.py`, then `--official` once the command is the one you mean to cite. Build a handoff before crossing responsibilities.
+3. Switch to `finalizing` and complete validation, a fresh paper task, PDF QA and delivery.
+
+```bash
+python3 $S/init_project.py --project /path/to/new-project --project-id CUMCM-2026-B --official /path/to/official-files
+python3 $S/cumcm_check.py --project /path/to/project --stage validation --gate-mode enforce
+python3 $S/set_mode.py --project /path/to/project --mode finalizing
+python3 $S/build_handoff.py --project /path/to/project --transition validation-paper
+python3 $S/build_independent_review_package.py --project /path/to/project --review-mode auto
+python3 $S/plan_redo.py --project /path/to/project --changed code/solve.py
+```
+
+## 10. Codex and Claude Code
+
+The single canonical tree is `.agents/skills/cumcm-workflow/`.
+
+- **Codex** picks up `.agents/skills/` inside the repository; `agents/openai.yaml` supplies the display name and default prompt. Trigger with `$cumcm-workflow`.
+- **Claude Code** reads `.claude/skills/cumcm-workflow/SKILL.md`, a thin router into the canonical tree — it restates no rules, so the two cannot drift. `CLAUDE.md` at the root carries the engineering conventions. Copy `.claude/skills/cumcm-workflow/` into `~/.claude/skills/` to use it as a personal skill.
+
+Both run the same scripts, which locate schemas and assets through `Path(__file__)` and do not care about the working directory.
+
+## 11. Development
 
 ```bash
 python3 -m pip install -r requirements-ci.txt
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 -m compileall -q .agents/skills/cumcm-workflow/scripts tests
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  .agents/skills/cumcm-workflow
 ```
 
-CI runs the exact dependency set on Python 3.10 and 3.13. Real paper releases still require XeLaTeX compilation and rendered-page inspection.
+CI runs the contract tests on Python 3.10 and 3.13. `tests/test_v06_recorders.py` exercises the recorder chain with real execution and a real `xelatex` compile, skipping when the engine or the ctex class is absent.
 
-## 11. Limitations and license
+## 12. Limits and licence
 
-Fresh context reduces contamination; it does not guarantee an independent or correct reviewer. Digests prove artifact identity, not mathematical validity. Backend selection is deterministic guidance, not a benchmark of every toolbox/package. Visual and semantic quality still require problem-specific judgment.
+Fresh context reduces contamination but cannot prove a reviewer is independent or correct. Digests prove artifact identity, not mathematical validity. A frozen model contract can degrade into a description of whatever the code does; the machine can only check that the verification plan maps to recorded assertions, and that the selected candidate cites runs that evaluated it. Log-derived layout checks cannot see that a label inside a figure is too small. See [known limitations](docs/limitations.md).
 
-Further reading: [architecture](docs/architecture.md), [workflow contract](docs/workflow-contract.md), [provenance](docs/provenance.md), [v0.4→v0.5 migration](docs/migration-v0.4-to-v0.5.md), and [limitations](docs/limitations.md). Historical designs remain in [v0.4](docs/v0.4-design.md) and [v0.3](docs/v0.3-design.md); the current design is [v0.5](docs/v0.5-design.md).
-
-This repository is released under the [MIT License](LICENSE).
+[MIT License](LICENSE).

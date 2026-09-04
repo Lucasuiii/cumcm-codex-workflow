@@ -13,7 +13,7 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from init_latex_paper import initialize  # noqa: E402
-from test_v03_paper_quality import build_valid_v04_project  # noqa: E402
+from test_paper_pipeline import build_paper_ready_project  # noqa: E402
 from test_workflow_core import envelope, write_json  # noqa: E402
 from workflow_checks import check_latex_template, check_project  # noqa: E402
 
@@ -22,7 +22,7 @@ def build_inputs(root: Path, problem_ids: tuple[str, ...] = ("Q1", "Q2"), plan_i
     state = envelope("workflow_state")
     state.update(
         {
-            "workflow_version": "0.5.0",
+            "workflow_version": "0.6.0",
             "mode": "working",
             "implementation": {"preferred": "matlab", "fallback": "python", "selection": "auto"},
             "current_stage": "paper",
@@ -293,35 +293,35 @@ class LatexTemplateTests(unittest.TestCase):
     def test_final_placeholder_blocks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             manifest = json.loads((root / "paper/LATEX_TEMPLATE_MANIFEST.json").read_text(encoding="utf-8"))
             section = root / manifest["subproblem_sections"][0]["path"]
             section.write_text(section.read_text(encoding="utf-8") + "\n% CUMCM-TODO\n", encoding="utf-8")
-            findings, _ = check_project(root, "paper", "strict")
+            findings, _ = check_project(root, "paper")
             self.assertIn("LATEX-E008", {item.rule_id for item in findings})
 
     def test_delivery_requires_current_official_format_review(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "paper" / "LATEX_TEMPLATE_MANIFEST.json"
             manifest = json.loads(path.read_text(encoding="utf-8"))
             manifest["official_compliance"] = "unverified"
             manifest["official_template_source"] = None
             write_json(root, "paper/LATEX_TEMPLATE_MANIFEST.json", manifest)
-            findings, _ = check_project(root, "delivery", "strict", "preflight")
+            findings, _ = check_project(root, "delivery", "preflight")
             item = next(item for item in findings if item.rule_id == "LATEX-E009")
             self.assertTrue(item.gate_only)
 
     def test_compile_engine_must_match_template(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            build_valid_v04_project(root)
+            build_paper_ready_project(root)
             path = root / "delivery" / "COMPILE_RECEIPT.json"
             receipt = json.loads(path.read_text(encoding="utf-8"))
             receipt["attempts"][0]["engine"] = "lualatex"
             write_json(root, "delivery/COMPILE_RECEIPT.json", receipt)
-            findings, _ = check_project(root, "delivery", "strict")
+            findings, _ = check_project(root, "delivery")
             self.assertIn("COMPILE-E014", {item.rule_id for item in findings})
 
 

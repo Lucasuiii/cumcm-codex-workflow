@@ -1,29 +1,67 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/delivery-manifest.schema.json",
-  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
   "type": "object",
-  "required": ["profile", "source_policy", "deliverables", "files", "compile", "unresolved_errors", "accepted_exceptions", "excluded_files", "final_review"],
+  "required": [
+    "source_policy",
+    "deliverables",
+    "files",
+    "compile",
+    "unresolved_errors",
+    "accepted_exceptions",
+    "excluded_files",
+    "final_review"
+  ],
   "properties": {
-    "artifact_type": {"const": "delivery_manifest"},
-    "profile": {"enum": ["strict", "sprint"]},
+    "artifact_type": {
+      "const": "delivery_manifest"
+    },
     "source_policy": {
       "type": "object",
-      "required": ["mode", "network_lookup_performed", "missing_user_materials"],
+      "required": [
+        "mode",
+        "network_lookup_performed",
+        "missing_user_materials"
+      ],
       "properties": {
-        "mode": {"const": "user_supplied_only"},
-        "network_lookup_performed": {"const": false},
-        "missing_user_materials": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        "mode": {
+          "const": "user_supplied_only"
+        },
+        "network_lookup_performed": {
+          "const": false
+        },
+        "missing_user_materials": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       },
       "additionalProperties": false
     },
     "deliverables": {
       "type": "object",
-      "required": ["final_pdf", "editable_latex_source", "computation_source"],
+      "required": [
+        "final_pdf",
+        "editable_latex_source",
+        "computation_source"
+      ],
       "properties": {
-        "final_pdf": {"$ref": "#/$defs/deliverable"},
-        "editable_latex_source": {"$ref": "#/$defs/deliverable"},
-        "computation_source": {"$ref": "#/$defs/deliverable"}
+        "final_pdf": {
+          "$ref": "#/$defs/deliverable"
+        },
+        "editable_latex_source": {
+          "$ref": "#/$defs/deliverable"
+        },
+        "computation_source": {
+          "$ref": "#/$defs/deliverable"
+        }
       },
       "additionalProperties": false
     },
@@ -32,40 +70,105 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["path", "role", "size"],
+        "required": [
+          "path",
+          "role",
+          "size"
+        ],
         "properties": {
-          "path": {"type": "string", "minLength": 1},
-          "role": {"enum": ["final_pdf", "editable_latex_source", "computation_source", "documentation", "supporting_evidence", "submission_package"]},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "size": {"type": "integer", "minimum": 1}
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": [
+              "final_pdf",
+              "editable_latex_source",
+              "computation_source",
+              "documentation",
+              "supporting_evidence",
+              "submission_package"
+            ]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          }
         }
       }
     },
     "compile": {
       "type": "object",
-      "required": ["command", "engine", "exit_code", "log_path", "warnings", "page_count"],
+      "required": [
+        "command",
+        "engine",
+        "exit_code",
+        "log_path",
+        "warnings",
+        "page_count"
+      ],
       "properties": {
-        "command": {"type": "string", "minLength": 1},
-        "engine": {"type": "string", "minLength": 1},
-        "exit_code": {"type": "integer"},
-        "log_path": {"type": "string", "minLength": 1},
-        "warnings": {"type": "array"},
-        "page_count": {"type": "integer", "minimum": 1}
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "log_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "warnings": {
+          "type": "array"
+        },
+        "page_count": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
-    "unresolved_errors": {"type": "array"},
-    "accepted_exceptions": {"type": "array"},
-    "excluded_files": {"type": "array"},
-    "final_review": {"$ref": "common.schema.json#/$defs/review"}
+    "unresolved_errors": {
+      "type": "array"
+    },
+    "accepted_exceptions": {
+      "type": "array"
+    },
+    "excluded_files": {
+      "type": "array"
+    },
+    "final_review": {
+      "$ref": "common.schema.json#/$defs/review"
+    }
   },
   "$defs": {
     "deliverable": {
       "type": "object",
-      "required": ["path", "entrypoint", "editable"],
+      "required": [
+        "path",
+        "entrypoint",
+        "editable"
+      ],
       "properties": {
-        "path": {"type": "string", "minLength": 1},
-        "entrypoint": {"type": "string", "minLength": 1},
-        "editable": {"type": "boolean"}
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "editable": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": true
     }

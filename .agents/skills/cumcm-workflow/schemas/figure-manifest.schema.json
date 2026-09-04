@@ -1,29 +1,81 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Lucasuiii/cumcm-codex-workflow/main/.agents/skills/cumcm-workflow/schemas/figure-manifest.schema.json",
-  "allOf": [{"$ref": "common.schema.json#/$defs/envelope"}],
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
   "type": "object",
-  "required": ["figures"],
+  "required": [
+    "figures"
+  ],
   "properties": {
-    "artifact_type": {"const": "figure_manifest"},
+    "artifact_type": {
+      "const": "figure_manifest"
+    },
     "figures": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["figure_id", "kind", "purpose", "path", "result_ids", "run_ids", "axes", "transformations", "caption_claims", "paper_location", "visual_review"],
+        "required": [
+          "figure_id",
+          "kind",
+          "purpose",
+          "path",
+          "result_ids",
+          "run_ids",
+          "caption_claims"
+        ],
         "properties": {
-          "figure_id": {"type": "string", "minLength": 1},
-          "kind": {"enum": ["quantitative", "table", "conceptual"]},
-          "purpose": {"type": "string", "minLength": 1},
-          "path": {"type": "string", "minLength": 1},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "result_ids": {"type": "array", "items": {"type": "string"}},
-          "run_ids": {"type": "array", "items": {"type": "string"}},
-          "axes": {"type": "array"},
-          "transformations": {"type": "array"},
-          "caption_claims": {"type": "array", "minItems": 1},
-          "paper_location": {"type": ["string", "null"]},
-          "visual_review": {"$ref": "common.schema.json#/$defs/review"}
+          "figure_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "quantitative",
+              "table",
+              "conceptual"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "result_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "run_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "caption_claims": {
+            "type": "array",
+            "minItems": 1
+          },
+          "paper_location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visual_review": {
+            "$ref": "common.schema.json#/$defs/review"
+          }
         },
         "additionalProperties": true
       }

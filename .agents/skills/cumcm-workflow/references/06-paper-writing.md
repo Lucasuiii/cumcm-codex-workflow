@@ -76,8 +76,8 @@ Use this priority whenever sources conflict: a current official paper template a
 - Keep figures near the argument they support; use booktabs-style tables, concise captions, and subfigures only when joint comparison improves reading.
 - Use `tabularx` or `longtable` for genuinely wide/long material before shrinking text. Move supporting bulk to the appendix when rules allow.
 
-`PAPER_QUALITY_REPORT.json` binds content, rendered layout, and final QA to the exact PDF. Open P0 issues block final status. P1 concerns and P2 suggestions remain visible but do not block. Failed layout checks that make equations, tables, figures, glyphs, or pages unreadable remain hard submission-reliability failures.
+`PAPER_QUALITY_REPORT.json` binds content, rendered layout and final QA to the exact PDF. v0.6 dropped the per-question eight-dimension matrix: a reviewed subproblem records `status` and `notes`, and the layout block's page count, rendered pages and checks come from `record_compile.py` rather than from an attestation. Open P0 issues block final status. P1 concerns and P2 suggestions remain visible but do not block. Failed layout checks that make equations, tables, figures, glyphs or pages unreadable remain hard submission-reliability failures.
 
-Run `paper_visible_text_check.py`. Internal metadata and local paths block; excessive decimal precision and number-dense sentences are warnings for reader review. A revision log is optional: use it when it helps track a real P0/P1 correction, not to force rounds.
+Run `paper_visible_text_check.py`. Internal metadata and local paths block; excessive decimal precision and number-dense sentences are warnings for reader review. It matches workflow IDs by their actual shape (`PREFIX-[Qn-]NNN`), so ordinary prose such as "Model-A" is not a false positive. A revision log is optional: use it when it helps track a real P0/P1 correction, not to force rounds.
 
 Build `paper-delivery` after the exact PDF and editable source are approved.

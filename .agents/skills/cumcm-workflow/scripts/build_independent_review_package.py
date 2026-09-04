@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from canonical_evidence import resolve_official_computation
-from workflow_checks import WORKFLOW_VERSION, read_json, safe_project_path
+from workflow_checks import REQUIRED_CONTEXT_EXCLUSIONS, WORKFLOW_VERSION, read_json, safe_project_path
 from provenance import digest_records, sha256_file
 
 
@@ -139,12 +139,22 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             "analysis/PROBLEM_FACTS.json": "problem_contract",
             "analysis/TASK_CAPABILITIES.json": "problem_contract",
             "model/MODEL_CONTRACT.json": "model_contract",
-            "model/CROSS_QUESTION_LEDGER.json": "model_contract",
-            "model/VALIDATION_PLAN.md": "model_contract",
             "results/RESULTS_INDEX.json": "run_record",
         }
         for rel, role in contract_roles.items():
             copy_material(project, staging, rel, role, records, seen)
+        # Narrative notes help a reviewer but are not contracts; include them only if present.
+        optional_roles = {
+            "model/CROSS_QUESTION_LEDGER.json": "model_contract",
+            "model/VALIDATION_PLAN.md": "model_contract",
+            "model/MODEL_CANDIDATES.md": "model_contract",
+            "model/OPTIMALITY_SCOPE.md": "model_contract",
+            "analysis/ASSUMPTIONS.md": "problem_contract",
+            "analysis/SYMBOLS.md": "problem_contract",
+        }
+        for rel, role in optional_roles.items():
+            if (project / rel).is_file():
+                copy_material(project, staging, rel, role, records, seen)
 
         for source in sources.get("sources", []):
             if isinstance(source, dict) and source.get("origin") in {"official", "organizer_attachment"}:
@@ -182,21 +192,22 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             "project_id": project_id,
             "updated_at": None,
             "producer": {"kind": "external_tool", "name": "selected independent reviewer", "version": None},
-            "review": {"decision": "unreviewed", "reviewer": None, "reviewed_at": None, "scope": "imported independent review", "notes": None},
             "review_id": "REPLACE",
             "package_manifest_path": (PACKAGE_REL / "REVIEW_PACKAGE_MANIFEST.json").as_posix(),
             "package_digest": "REPLACE_AFTER_PACKAGE_BUILD",
             "review_mode": review_mode,
             "previous_review_path": previous_review_path,
             "target_finding_ids": target_finding_ids,
+            # Independence is never pre-answered by the packager. The reviewer or the
+            # user must positively assert each field; leaving a null fails IREVIEW-E027.
             "reviewer_context": {
-                "reviewer_kind": "same_model_new_context",
+                "reviewer_kind": None,
                 "reviewer": "REPLACE",
                 "model": "REPLACE",
                 "task_ref": "REPLACE",
-                "different_conversation": True,
-                "selected_by_user": True,
-                "independence_grade": "context_separated_model_correlated",
+                "different_conversation": None,
+                "selected_by_user": None,
+                "independence_grade": None,
             },
             "verdict": "inconclusive",
             "findings": [],
@@ -227,7 +238,6 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             "project_id": project_id,
             "updated_at": generated_at,
             "producer": {"kind": "script", "name": "build_independent_review_package.py", "version": WORKFLOW_VERSION},
-            "review": {"decision": "unreviewed", "reviewer": None, "reviewed_at": None, "scope": "package completeness and reviewer selection", "notes": None},
             "package_root": PACKAGE_REL.as_posix(),
             "review_skill_path": (PACKAGE_REL / "SKILL.md").as_posix(),
             "review_request_path": (PACKAGE_REL / "REVIEW_REQUEST.md").as_posix(),
@@ -236,7 +246,9 @@ def build(project: Path, *, review_mode: str = "auto", previous_review_path: str
             "target_finding_ids": target_finding_ids,
             "upstream_digest": digest_records(upstream_records),
             "package_digest": package_digest,
-            "conclusions_withheld": True,
+            # A truthful statement about what the packager excluded, not a claim
+            # about what the reviewer happens to believe.
+            "context_excluded": sorted(REQUIRED_CONTEXT_EXCLUSIONS),
             "files": sorted(records, key=lambda item: item["path"]),
             "reviewer_selection": {"status": "unreviewed", "selected_by": None, "reviewer": None, "model": None, "originating_task_ref": None, "task_ref": None},
         }

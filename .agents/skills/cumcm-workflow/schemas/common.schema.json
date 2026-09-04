@@ -4,37 +4,107 @@
   "$defs": {
     "producer": {
       "type": "object",
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "properties": {
-        "kind": {"enum": ["human", "codex", "script", "external_tool"]},
-        "name": {"type": "string", "minLength": 1},
-        "version": {"type": ["string", "null"]}
+        "kind": {
+          "enum": [
+            "human",
+            "codex",
+            "script",
+            "external_tool"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": true
     },
     "review": {
       "type": "object",
-      "required": ["decision", "reviewer", "reviewed_at", "scope", "notes"],
+      "required": [
+        "decision",
+        "reviewer",
+        "reviewed_at",
+        "scope",
+        "notes"
+      ],
       "properties": {
-        "decision": {"enum": ["unreviewed", "accepted", "accepted_with_concerns", "revision_requested"]},
-        "reviewer": {"type": ["string", "null"]},
-        "reviewed_at": {"type": ["string", "null"]},
-        "scope": {"type": ["string", "null"]},
-        "notes": {"type": ["string", "null"]}
+        "decision": {
+          "enum": [
+            "unreviewed",
+            "accepted",
+            "accepted_with_concerns",
+            "revision_requested"
+          ]
+        },
+        "reviewer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reviewed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "additionalProperties": false
     },
     "envelope": {
       "type": "object",
-      "required": ["schema_version", "artifact_type", "project_id", "updated_at", "producer"],
+      "required": [
+        "schema_version",
+        "artifact_type",
+        "project_id",
+        "updated_at",
+        "producer"
+      ],
       "properties": {
-        "schema_version": {"const": "0.5.0"},
-        "artifact_type": {"type": "string", "minLength": 1},
-        "project_id": {"type": "string", "minLength": 1},
-        "updated_at": {"type": "string", "minLength": 1},
-        "producer": {"$ref": "#/$defs/producer"},
-        "review": {"$ref": "#/$defs/review"}
-      }
+        "schema_version": {
+          "const": "0.6.0"
+        },
+        "artifact_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "producer": {
+          "$ref": "#/$defs/producer"
+        }
+      },
+      "description": "Formal approval lives in .cumcm/decisions.jsonl, not in a per-artifact review field."
     },
     "evidence_state": {
       "enum": [

@@ -16,7 +16,7 @@ from official_materials import classified_official_materials
 from provenance import digest_records, sha256_file, snapshot_matches
 
 
-WORKFLOW_VERSION = "0.5.0"
+WORKFLOW_VERSION = "0.6.0"
 TRANSITIONS = {
     "modeling-computation": ("model-design", "computation"),
     "computation-validation": ("computation", "validation"),
@@ -29,7 +29,6 @@ BASE_PATHS = {
         ("analysis/PROBLEM_FACTS.json", "problem"),
         ("analysis/TASK_CAPABILITIES.json", "capabilities"),
         ("model/MODEL_CONTRACT.json", "model"),
-        ("model/CROSS_QUESTION_LEDGER.json", "cross_question"),
     ],
     "computation-validation": [
         ("model/MODEL_CONTRACT.json", "model"),
@@ -52,6 +51,12 @@ BASE_PATHS = {
         ("paper/PAPER_VISIBLE_TEXT_REPORT.json", "visible_text"),
         ("delivery/COMPILE_RECEIPT.json", "compile_receipt"),
     ],
+}
+
+
+OPTIONAL_PATHS = {
+    "modeling-computation": [("model/CROSS_QUESTION_LEDGER.json", "cross_question")],
+    "validation-paper": [("model/CROSS_QUESTION_LEDGER.json", "cross_question")],
 }
 
 
@@ -329,6 +334,10 @@ def build(root: Path, transition: str) -> Path:
     records: list[dict[str, str]] = []
     for rel, role in BASE_PATHS[transition]:
         add_artifact(root, records, rel, role)
+    # The cross-question ledger is optional in v0.6; bind it only when it exists.
+    for rel, role in OPTIONAL_PATHS.get(transition, []):
+        if (root / rel).is_file():
+            add_artifact(root, records, rel, role)
     if transition == "modeling-computation":
         for source in official_sources(root):
             add_artifact(root, records, str(source.get("path")), "official_input")

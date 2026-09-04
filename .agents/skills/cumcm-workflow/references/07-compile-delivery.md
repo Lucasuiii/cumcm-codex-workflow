@@ -2,9 +2,16 @@
 
 Delivery is a `finalizing` responsibility. It uses only current user-supplied official rules/templates and the fresh `paper-delivery` handoff. That handoff must identify the reviewed PDF, the compile-bound editable LaTeX snapshot/entry point, every official computation source selected through `RESULTS_INDEX → successful official run → source snapshot`, and the official paper materials still requiring compliance review.
 
+Produce the receipt with the recorder, not by hand:
+
+```bash
+python3 scripts/record_compile.py --project <p> --update-quality
+```
+
 ## Hard checks
 
 - the selected compile attempt exited successfully with the declared engine;
+- font and missing-glyph checks pass (derived from the engine log, not asserted);
 - the reviewed PDF path/hash, page count, layout review, compile receipt, and delivery manifest agree;
 - the compile receipt contains a current `sha256-tree-v1` snapshot of every required editable LaTeX source file and its entry point;
 - fonts/glyphs, overflow, clipping, unreadable figures/tables, and unresolved references are checked;

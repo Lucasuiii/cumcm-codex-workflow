@@ -47,7 +47,7 @@ class ValidatorTests(unittest.TestCase):
             self.assertEqual(records[0]["media_type"], "application/pdf")
             self.assertFalse(records[0]["mutable"])
 
-    def test_inventory_cli_emits_v05_manifest(self):
+    def test_inventory_cli_emits_current_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             official = root / "problem" / "official"
@@ -73,7 +73,7 @@ class ValidatorTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             payload = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(payload["schema_version"], "0.5.0")
+            self.assertEqual(payload["schema_version"], "0.6.0")
 
 
 if __name__ == "__main__":

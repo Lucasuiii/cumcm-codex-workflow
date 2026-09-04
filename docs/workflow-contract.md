@@ -3,35 +3,60 @@
 | 职责 | Hard invariant（阻断） | Non-blocking concern |
 |---|---|---|
 | Intake | 官方输入保持不变且身份正确 | 可选来源元数据的完善 |
-| Modeling | 每个官方小问都有明确输出负责人；模型范围不与题意冲突 | 备选模型广度、更强或更弱的假设比较 |
-| Computation | 一个成功 official backend、当前 source snapshot、formal input/output 和精确 result locator | 更多断言、诊断或性能优化 |
-| Validation | Fresh package、没有开放 P0、claim 有证据和适用范围 | P1 验证/敏感性/泛化 concern；P2 suggestion |
-| Paper | 回答每个小问；不发明结果、不泄露内部元数据；没有开放 paper P0 | 图表密度、章节强度和可选润色 |
-| Delivery | 精确的 reviewed PDF、当前 editable source snapshot、成功编译、官方格式审查和三类交付角色 | 非关键展示优化 |
+| Modeling | 每个官方小问都有 capability 负责，且有可失败的验收检查；模型范围不与题意冲突；冻结时候选比较必须收敛到恰好一个 selected 且有理由 | 草稿期的模型广度；working 期尚未归属的 capability；候选缺少区分证据 |
+| Computation | 一个成功 official run、当前 source snapshot、formal input/output 和精确 result locator | 探索运行的一切问题（失败、缺日志、断言不过）；更多诊断或性能优化 |
+| Validation | Fresh package、没有开放 P0、claim 有证据和适用范围、独立性字段被正面声明 | P1 验证/敏感性/泛化 concern；P2 suggestion |
+| Paper | 回答每个小问；不发明结果、不泄露内部元数据；没有开放 paper P0；版面失败项来自编译日志 | 图表密度、章节强度和可选润色 |
+| Delivery | 精确的 reviewed PDF、当前 editable source snapshot、成功编译、字体/缺字检查、官方格式审查和三类交付角色 | 非关键展示优化 |
 
 ## Gate 语义
 
-在 `working` 模式中，下游 artifact 不完整时仍可继续探索。`finalizing` 的 `enforce` 要求目标阶段及全部上游阶段为 `passed`，并由当前 accepted decision 和派生 snapshot 覆盖。编辑 state 不能代替 decision。
+两个旋钮：`mode`（working / finalizing）与 `--gate-mode`（preflight / enforce）。没有 profile。
+
+在 `working` 模式中，草稿模型合同和不完整的下游产物都可以继续。`finalizing` 的 `enforce` 要求目标阶段及全部上游为 `passed`，并由当前 accepted decision 和派生 snapshot 覆盖。编辑 state 不能代替 decision。
 
 自动错误分为两类：
 
 - hard invariant：在 working/finalizing 中都不能降级；
 - finalizing completeness：working 中可以暂缺，进入 finalizing 后必须满足。
 
-Warning 和 suggestion 会进入报告，但不改变通过状态，除非新的证据表明它实际上属于 P0。
+Warning 和 suggestion 会进入报告，但不改变通过状态。
+
+## 候选与选择语义
+
+`components[].candidates` 让"选了 A"成为可核对的链条而不是一句声明：
+
+| 规则 | 含义 | working | finalizing |
+|---|---|---|---|
+| `MODEL-E013` | 必须恰好一个候选 `selected` | warning | error |
+| `MODEL-E014` | `selected`/`rejected` 必须有 `decision_rationale` | warning | error |
+| `MODEL-W014` | `selected` 必须引用评估过它的运行 | warning | error |
+| `MODEL-W012` | 候选应说明 `discriminating_evidence` | warning | warning |
+| `MODEL-E015` | 引用的评估运行必须存在 | error | error |
+| `MODEL-W016` | 被引用的运行应当用 `--candidate` 声明过它评估了谁 | warning | warning |
+| `MODEL-W007` | 冻结时只有一个候选 | warning | warning |
+
+只写一个候选是允许的：本工作流不逼你凑候选，它只是不接受一场没发生过的比较。
+
+## 模型冻结语义
+
+`working` 只要求 `model_id` / `capability_ids` / `method` / `scope`。进入 `finalizing` 才要求 `variables` / `inputs` / `outputs` / `verification_plan`，且：
+
+- 该 component 覆盖的 capability 必须至少有一个 official run 记录过断言，否则 `MODEL-E009`；
+- `verification_plan` 里对不上任何已记录断言名的条目产生 `MODEL-W010`。
+
+能力归属（`CAP-E008`、`CAP-E009`）在两种模式下都是 error，因为"答非所问"不随模型换代而消失。
 
 ## Review 语义
 
-Independent review 从 full pass 开始。如果返回开放 P0，下一轮默认 targeted re-review。`accepted_with_concerns` 足以进入 paper，因为开放 P1 只说明仍有改进空间，并未证明结果为假。
+Independent review 从 full pass 开始。如果返回开放 P0，下一轮默认 targeted re-review。`accepted_with_concerns` 足以进入 paper。
 
-Targeted result 不必重复 full review 的 P1，但 validation→paper handoff 会沿结构化 lineage 取每个 finding 的最新状态：开放/已接受 P1 保留，resolved 不保留。Paper limitation 只接受受支持、可进入论文的 claim，不吸收 contradicted/unsupported claim。
+Targeted result 不必重复 full review 的 P1，但 validation→paper handoff 会沿结构化 lineage 取每个 finding 的最新状态。
+
+复核包声明 `context_excluded`（实际排除的先验推理），而不是声称 reviewer 没有结论。结果模板的四个独立性字段初值为 `null`，必须被正面声明，否则 `IREVIEW-E027`。同一上下文不能满足 independent review；different model 或 human 也只表示 independence evidence 更强，不构成数学证明。
 
 所有正式源码消费者采用同一链：`RESULTS_INDEX.json` → referenced successful `official_run: true` → current source snapshot。缺失、失败、non-official 或 stale 均为明确错误。
 
-同一上下文不能满足 independent review。Same-model fresh task 仍标记为 correlated；different model 或 human 也只表示 independence evidence 更强，不构成数学证明。
+## 变化与重做范围
 
-## 变化与重验范围
-
-Change impact 控制 revalidation scope。Cosmetic/local change 不触发 full-workspace review；semantic、claim-changing 和 global change 只扩展到真正受影响的下游阶段。
-
-Snapshot trusted 不会跳过官方输入、official run、result/output、review package、handoff 或 final PDF 的 identity 检查。
+确定性检查始终完整运行到目标阶段。需要被 scope 的是昂贵动作——重跑、重复核、重写——由 `plan_redo.py` 沿 ID 图反向遍历得出，并同时列出**不受影响**的 run、finding 和 section。v0.5 的 `cosmetic/local/semantic/claim_changing/global` 分类已删除。

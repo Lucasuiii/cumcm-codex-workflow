@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run v0.5 CUMCM evidence checks and write a machine-readable report."""
+"""Run v0.6 CUMCM evidence checks and write a machine-readable report."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from workflow_checks import CHANGE_IMPACTS, GATE_MODES, PROFILES, STAGES, check_project, plan_scoped_revalidation
+from workflow_checks import GATE_MODES, STAGES, check_project
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate v0.5 workflow evidence. A passing result establishes "
+            "Validate v0.6 workflow evidence. A passing result establishes "
             "traceability and recorded evidence, not mathematical correctness."
         )
     )
@@ -23,12 +23,11 @@ def main() -> int:
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--stage", choices=STAGES)
     selection.add_argument("--all", action="store_true", help="validate through delivery")
-    parser.add_argument("--profile", choices=sorted(PROFILES), default="strict")
     parser.add_argument(
         "--gate-mode",
         choices=sorted(GATE_MODES),
         default="enforce",
-        help="preflight allows review-only findings to return 0; enforce requires accepted human gates",
+        help="preflight reports human-gated findings without failing; enforce requires them accepted",
     )
     parser.add_argument(
         "--report",
@@ -36,8 +35,6 @@ def main() -> int:
         help="report path; defaults to <project>/.cumcm/validation-report.json",
     )
     parser.add_argument("--no-write-report", action="store_true")
-    parser.add_argument("--changed", action="append", default=[], help="project-relative changed path; repeat as needed")
-    parser.add_argument("--impact", choices=sorted(CHANGE_IMPACTS), help="classify changes for scoped revalidation")
     args = parser.parse_args()
 
     project = args.project.resolve()
@@ -45,15 +42,13 @@ def main() -> int:
         parser.error(f"project is not a directory: {project}")
     stage = "delivery" if args.all else args.stage
     try:
-        findings, summary = check_project(project, stage, args.profile, args.gate_mode)
-        if args.impact:
-            summary["revalidation_scope"] = plan_scoped_revalidation(args.changed, args.impact, stage)
+        findings, summary = check_project(project, stage, args.gate_mode)
     except (OSError, ValueError) as exc:
         print(f"validator failure: {exc}", file=sys.stderr)
         return 2
 
     payload = {
-        "report_version": "0.5.0",
+        "report_version": "0.6.0",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project_root": str(project),
         "summary": summary,
@@ -72,7 +67,7 @@ def main() -> int:
         print(f"{item.severity.upper()} {item.rule_id} [{item.evidence_type}] {pointer}: {item.message}")
     counts = summary["finding_counts"]
     print(
-        f"checked through {stage} ({args.profile}): "
+        f"checked through {stage} ({summary['workflow_mode']}): "
         f"{counts['error']} error(s), {counts['warning']} warning(s), {counts['info']} info"
     )
     print(f"gate status: {summary['gate_status']} ({args.gate_mode})")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a modular v0.5 CUMCM LaTeX paper without overwriting existing work."""
+"""Initialize a modular v0.6 CUMCM LaTeX paper without overwriting existing work."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Any
 from official_materials import classified_official_materials
 
 
-WORKFLOW_VERSION = "0.5.0"
+WORKFLOW_VERSION = "0.6.0"
 TEMPLATE_ID = "cumcm-contest-ctex"
 
 
@@ -247,7 +247,6 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
             "project_id": state["project_id"],
             "updated_at": generated_at,
             "producer": {"kind": "script", "name": "init_latex_paper.py", "version": WORKFLOW_VERSION},
-            "review": {"decision": "unreviewed", "reviewer": None, "reviewed_at": None, "scope": "generated LaTeX scaffold", "notes": None},
             "template_id": template_meta["template_id"],
             "template_version": template_meta["template_version"],
             "mode": template_meta["mode"],
@@ -272,7 +271,7 @@ def initialize(project: Path, title: str, competition_year: int, keywords: str) 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.5 CUMCM project")
+    parser = argparse.ArgumentParser(description="Initialize the canonical reader-facing LaTeX template for a v0.6 CUMCM project")
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--title", required=True, help="reader-facing title derived from the actual problem")
     parser.add_argument("--competition-year", type=int, default=datetime.now().year)

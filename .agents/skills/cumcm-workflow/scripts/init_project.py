@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a complete v0.5 CUMCM workspace and run intake preflight."""
+"""Create a complete v0.6 CUMCM workspace and run intake preflight."""
 
 from __future__ import annotations
 
@@ -17,8 +17,7 @@ from inventory_artifacts import sha256
 from workflow_checks import check_project
 
 
-WORKFLOW_VERSION = "0.5.0"
-PROFILES = ("strict", "sprint")
+WORKFLOW_VERSION = "0.6.0"
 PROJECT_DIRECTORIES = (
     ".cumcm/tmp",
     ".cumcm/snapshots",
@@ -47,16 +46,6 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def unreviewed(scope: str) -> dict[str, Any]:
-    return {
-        "decision": "unreviewed",
-        "reviewer": None,
-        "reviewed_at": None,
-        "scope": scope,
-        "notes": None,
-    }
-
-
 def envelope(artifact_type: str, project_id: str, created_at: str) -> dict[str, Any]:
     return {
         "schema_version": WORKFLOW_VERSION,
@@ -64,7 +53,6 @@ def envelope(artifact_type: str, project_id: str, created_at: str) -> dict[str, 
         "project_id": project_id,
         "updated_at": created_at,
         "producer": {"kind": "script", "name": "init_project.py", "version": WORKFLOW_VERSION},
-        "review": unreviewed("generated workspace scaffold"),
     }
 
 
@@ -148,13 +136,12 @@ def build_source_records(project: Path) -> list[dict[str, Any]]:
     return records
 
 
-def write_project_brief(project: Path, project_id: str, profile: str, created_at: str, source_count: int) -> None:
+def write_project_brief(project: Path, project_id: str, created_at: str, source_count: int) -> None:
     text = f"""# CUMCM 项目工作区
 
 - 项目 ID：`{project_id}`
 - 工作流版本：`{WORKFLOW_VERSION}`
 - 工作模式：`working`（冻结前切换为 `finalizing`）
-- 检查配置：`{profile}`
 - 计算偏好：MATLAB 优先、Python fallback、按任务自动择优
 - 初始化时间：`{created_at}`
 - 官方输入文件数：{source_count}
@@ -164,8 +151,9 @@ def write_project_brief(project: Path, project_id: str, profile: str, created_at
 
 1. 查看 `problem/SOURCE_MANIFEST.json` 和 `problem/official/`，确认官方题目、附件及当年规则是否齐全。
 2. 不要仅凭文件存在就批准；公式、表格或版式承载含义的 PDF 需要渲染检查。
-3. 工作期可继续拆题；进入 `finalizing` 前必须明确批准 intake，并记录 artifact-bound decision/snapshot。
+3. 工作期可继续拆题和试算；进入 `finalizing` 前必须明确批准 intake，并记录 artifact-bound decision/snapshot。
 4. 进入 `problem-analysis` 后再创建事实、能力和假设文件；初始化器没有推断任何题意、模型或结果。
+5. 计算一律用 `record_run.py` 包装执行，结果一律用 `index_result.py` 索引；不要手写 hash 或 run manifest。
 
 机器可读初始化记录位于 `.cumcm/init-report.json`，当前 preflight 位于 `.cumcm/validation-report.json`。
 """
@@ -176,7 +164,6 @@ def create_staged_project(
     staging: Path,
     final_project: Path,
     project_id: str,
-    profile: str,
     source_records: list[tuple[Path, Path]],
     skipped_sources: list[str],
 ) -> dict[str, Any]:
@@ -203,16 +190,14 @@ def create_staged_project(
             },
         }
     )
-    state["review"] = unreviewed("workflow initialization")
     write_json(staging / ".cumcm" / "state.json", state)
 
     sources = envelope("source_manifest", project_id, created_at)
-    sources["review"] = unreviewed("official input completeness and origin")
     sources["sources"] = build_source_records(staging)
     write_json(staging / "problem" / "SOURCE_MANIFEST.json", sources)
-    write_project_brief(staging, project_id, profile, created_at, len(sources["sources"]))
+    write_project_brief(staging, project_id, created_at, len(sources["sources"]))
 
-    findings, summary = check_project(staging, "intake", profile, "preflight")
+    findings, summary = check_project(staging, "intake", "preflight")
     if summary["blocking_error_count"]:
         messages = "; ".join(
             f"{item.rule_id}: {item.message}"
@@ -232,7 +217,6 @@ def create_staged_project(
         "report_version": WORKFLOW_VERSION,
         "created_at": created_at,
         "project_id": project_id,
-        "profile": profile,
         "source_count": len(sources["sources"]),
         "skipped_source_metadata": skipped_sources,
         "current_stage": "intake",
@@ -250,7 +234,7 @@ def create_staged_project(
     return {"created_at": created_at, "summary": summary, "source_count": len(sources["sources"])}
 
 
-def initialize(project: Path, project_id: str, official: Path, profile: str) -> dict[str, Any]:
+def initialize(project: Path, project_id: str, official: Path) -> dict[str, Any]:
     project = project.resolve(strict=False)
     official = official.resolve()
     if project.exists():
@@ -265,7 +249,7 @@ def initialize(project: Path, project_id: str, official: Path, profile: str) -> 
     with tempfile.TemporaryDirectory(prefix=f".{project.name}.init-", dir=project.parent) as temp:
         staging = Path(temp) / "workspace"
         staging.mkdir()
-        result = create_staged_project(staging, project, project_id, profile, source_records, skipped_sources)
+        result = create_staged_project(staging, project, project_id, source_records, skipped_sources)
         if project.exists():
             project.rmdir()
         os.replace(staging, project)
@@ -281,12 +265,11 @@ def main() -> int:
     parser.add_argument("--project", required=True, type=Path, help="new or empty project directory")
     parser.add_argument("--project-id", required=True, help="stable project identifier, for example CUMCM-2026-B")
     parser.add_argument("--official", required=True, type=Path, help="official input file or directory")
-    parser.add_argument("--profile", choices=PROFILES, default="strict")
     args = parser.parse_args()
     if not args.project_id.strip():
         parser.error("project-id must not be empty")
     try:
-        result = initialize(args.project, args.project_id.strip(), args.official, args.profile)
+        result = initialize(args.project, args.project_id.strip(), args.official)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     print(f"initialized: {result['project']}")

@@ -30,8 +30,9 @@ jobs:
           PY
 
   recorders-with-latex:
-    # The recorder tests skip the compile cases when no engine is present; this job
-    # installs one so that record_compile.py is exercised against a real xelatex run.
+    # The compile tests skip themselves when no engine is present; this job installs
+    # one so that record_compile.py is exercised against a real xelatex run, and the
+    # ctex case stops being skipped.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,4 +47,6 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends \
             texlive-xetex texlive-lang-chinese texlive-latex-recommended \
             texlive-fonts-recommended poppler-utils
-      - run: python -m unittest discover -s tests -p 'test_v06_*.py' -v
+      # Run the whole suite: the recorder tests are the ones that need an engine,
+      # but a name pattern silently matches nothing after a rename, so don't use one.
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v

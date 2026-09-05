@@ -70,6 +70,31 @@ class EntryPointTests(unittest.TestCase):
                 self.assertTrue((SCRIPTS / name).is_file())
 
 
+class ContinuousIntegrationTests(unittest.TestCase):
+    """A test pattern that matches nothing exits 5 and reads as a green-ish failure.
+
+    This is exactly what happened when the v0.6 test files were renamed after the
+    workflow was written, so the patterns are checked against the tree.
+    """
+
+    def workflow_text(self) -> str:
+        return (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    def test_every_ci_discover_pattern_matches_at_least_one_test_file(self):
+        patterns = re.findall(r"unittest discover -s (\S+) -p '([^']+)'", self.workflow_text())
+        self.assertTrue(patterns, "no unittest discover invocation found in the CI workflow")
+        for directory, pattern in patterns:
+            with self.subTest(pattern=pattern):
+                matched = sorted((ROOT / directory).glob(pattern))
+                self.assertTrue(matched, f"CI pattern {pattern!r} in {directory} matches no file")
+
+    def test_ci_installs_what_the_compile_tests_need(self):
+        text = self.workflow_text()
+        for package in ("texlive-xetex", "texlive-lang-chinese", "poppler-utils"):
+            with self.subTest(package=package):
+                self.assertIn(package, text)
+
+
 class RemovedVocabularyTests(unittest.TestCase):
     """Instruction files must not tell an agent to produce something v0.6 deleted.
 

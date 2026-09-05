@@ -50,6 +50,8 @@ values = [3.0, 1.5, 4.25]
 out = pathlib.Path("results/q1_output.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps({"minimum_cost": min(values), "count": len(values)}) + "\\n", encoding="utf-8")
+checks = {"assertions": [{"name": "enumeration coverage", "passed": len(values) == 3}]}
+pathlib.Path("results/assertions.json").write_text(json.dumps(checks) + "\\n", encoding="utf-8")
 print("solved")
 """
 
@@ -133,7 +135,7 @@ class RecorderTests(unittest.TestCase):
             "--capability", "CAP-Q1-001", "--source", "code/solve.py",
             "--input", "problem/official/problem.txt:formal",
             "--output", "results/q1_output.json:claim",
-            "--assert", "enumeration coverage=pass",
+            "--assert-file", "results/assertions.json",
             "--", sys.executable, "code/solve.py",
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
@@ -370,7 +372,7 @@ class ProvenanceIntegrityTests(unittest.TestCase):
                        "--run-id", "RUN-BAD", "--", sys.executable, "code/broken.py")
             (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
             run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001", "--official",
-                       "--run-id", "RUN-GOOD", "--assert", "enumeration coverage=pass")
+                       "--run-id", "RUN-GOOD", "--assert-file", "results/assertions.json")
             moved = run_script("index_result.py", "--project", str(project), "--follow-lineage")
             self.assertEqual(moved.returncode, 0, moved.stdout + moved.stderr)
             index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
@@ -387,7 +389,7 @@ class ProvenanceIntegrityTests(unittest.TestCase):
                 "--input", "problem/official/problem.txt:formal",
                 "--input", "data/cleaned.csv:formal",
                 "--output", "results/q1_output.json:claim",
-                "--assert", "enumeration coverage=pass", "--", sys.executable, "code/solve.py",
+                "--assert-file", "results/assertions.json", "--", sys.executable, "code/solve.py",
             )
             self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
             manifest = json.loads((project / "runs" / "RUN-IN" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
@@ -404,6 +406,95 @@ class ProvenanceIntegrityTests(unittest.TestCase):
             (project / "data" / "cleaned.csv").write_text("a,b\n9,9\n", encoding="utf-8")
             findings, _ = check_project(project, "computation")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+
+SELF_EDITING = """import json, pathlib
+pathlib.Path("results/q1_output.json").parent.mkdir(parents=True, exist_ok=True)
+pathlib.Path("results/q1_output.json").write_text(json.dumps({"minimum_cost": 1.0}) + "\\n", encoding="utf-8")
+pathlib.Path("code/self_editing.py").write_text("# rewritten while running\\n", encoding="utf-8")
+print("moved under myself")
+"""
+
+
+class MachineDerivedEvidenceTests(unittest.TestCase):
+    """What a run says about itself must come from the run, not from the caller."""
+
+    def freeze_state(self, project: Path) -> None:
+        state_path = project / ".cumcm" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["mode"] = "finalizing"
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def complete_model(self, project: Path) -> None:
+        model_path = project / "model" / "MODEL_CONTRACT.json"
+        model = json.loads(model_path.read_text(encoding="utf-8"))
+        model["components"][0].update({
+            "variables": [{"name": "candidate"}], "inputs": ["SRC-001"], "outputs": ["RES-Q1-001"],
+            "verification_plan": ["enumeration coverage"],
+        })
+        model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    def test_a_hand_typed_verdict_cannot_satisfy_a_verification_plan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            recorded = run_script(
+                "record_run.py", "--project", str(project), "--run-id", "RUN-Q1-001", "--official",
+                "--capability", "CAP-Q1-001", "--source", "code/solve.py",
+                "--output", "results/q1_output.json:claim",
+                "--assert", "enumeration coverage=pass",          # typed, not produced
+                "--", sys.executable, "code/solve.py",
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
+            manifest = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["assertions"][0]["source"], "declared")
+
+            run_script("index_result.py", "--project", str(project), "--result-id", "RES-Q1-001",
+                       "--run", "RUN-Q1-001", "--locator", "results/q1_output.json#/minimum_cost",
+                       "--name", "Minimum cost", "--unit", "cost", "--scope", "declared candidates only")
+            self.complete_model(project)
+            working, _ = check_project(project, "computation")
+            self.assertIn("RUN-W003", {item.rule_id for item in working})
+            self.freeze_state(project)
+            frozen, _ = check_project(project, "computation")
+            self.assertIn("MODEL-E009", {item.rule_id for item in frozen})
+
+    def test_a_verdict_the_run_wrote_itself_does_satisfy_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            manifest = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["assertions"][0]["source"], "recorded")
+            self.complete_model(project)
+            self.freeze_state(project)
+            findings, _ = check_project(project, "computation")
+            rules = {item.rule_id for item in findings}
+            self.assertNotIn("MODEL-E009", rules)
+            self.assertNotIn("RUN-W003", rules)
+
+    def test_source_moving_under_a_running_command_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            (project / "code" / "self_editing.py").write_text(SELF_EDITING, encoding="utf-8")
+            refused = run_script(
+                "record_run.py", "--project", str(project), "--run-id", "RUN-DRIFT", "--official",
+                "--capability", "CAP-Q1-001", "--source", "code/self_editing.py",
+                "--output", "results/q1_output.json:claim",
+                "--", sys.executable, "code/self_editing.py",
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("changed while the run was executing", refused.stderr)
+            self.assertIn("code/self_editing.py", refused.stderr)
+            self.assertFalse((project / "runs" / "RUN-DRIFT" / "RUN_MANIFEST.json").exists())
+
+    def test_seeds_are_recorded_so_a_simulation_can_be_reproduced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            recorded = run_script("record_run.py", "--project", str(project), "--run-id", "RUN-SEED",
+                                  "--source", "code/solve.py", "--seed", "42", "--seed", "bootstrap=7",
+                                  "--", sys.executable, "code/solve.py")
+            self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
+            manifest = json.loads((project / "runs" / "RUN-SEED" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["seeds"], [{"name": "seed", "value": "42"}, {"name": "bootstrap", "value": "7"}])
 
 
 class CandidateSelectionTests(unittest.TestCase):

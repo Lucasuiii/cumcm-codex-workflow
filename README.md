@@ -165,6 +165,10 @@ ERROR RUN-E020  the working tree no longer matches this official run: code/solve
 
 - **不能冒领输出**。执行前后比对每个 declared output 的 mtime。一个 exit 0 却没写文件的程序，否则会把上一轮的结果连同真哈希一起冻结成自己的 claim 证据——真哈希、假出处。这种情况 `record_run.py` 直接拒绝写 manifest 并指出是哪个文件。
 - **不能继承判决**。`--rerun` 永不继承父运行的 assertions。新代码没有被旧的 `pass` 验证过，继承它等于凭空给 `MODEL-E009`（冻结模型必须有已执行的验证）喂证据。
+- **手打的判决不算已验证**。`--assert x=pass` 记为 `declared`（调用者备注），`--assert-file` 读程序自己写出的判决、记为 `recorded`。只有 `recorded` 能满足冻结模型的 `verification_plan`；official run 全是手打断言时报 `RUN-W003`。
+- **证据不能在脚下移动**。声明的源码和 formal input 在执行前取哈希、执行后复核——冻结发生在命令退出之后，运行中被改过的文件会被冻结成"运行从未读过的东西"。
+
+另外 `RUN-E024` 真正落实了 single-backend：同一 capability 不能同时存在 MATLAB 和 Python 的当前 official run（working 是 warning，冻结时是 error）。随机模拟用 `--seed` 记录种子。
 
 **只有成功的 official child 才构成取代**：失败或探索性的重跑什么也没替代。checker、handoff、复核包和 delivery 共用同一个解析器，所以"当前正式运行"四处含义一致。claim/figure 仍引用被取代运行时报 `CLAIM-W020`/`FIGURE-W013`。
 

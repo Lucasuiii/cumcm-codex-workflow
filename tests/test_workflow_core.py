@@ -253,7 +253,7 @@ def build_valid_project(root: Path) -> None:
             "environment": {"python": "3.x", "platform": "synthetic"},
             "stdout_path": "runs/RUN-Q1-001/stdout.log",
             "stderr_path": "runs/RUN-Q1-001/stderr.log",
-            "assertions": [{"name": "enumeration coverage", "passed": True}],
+            "assertions": [{"name": "enumeration coverage", "passed": True, "source": "recorded"}],
             "parent_run_id": None,
         }
     )

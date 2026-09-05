@@ -38,7 +38,7 @@ That chain is structural, not advice: exactly one candidate may end up `selected
 | | v0.5 | v0.6 |
 |---|---|---|
 | JSON Schemas | 22 | 21 |
-| Scripts | 15 | 21 |
+| Scripts | 15 | 19 |
 | Hand-written contracts | 14 | 9 |
 | State knobs | mode × profile × gate-mode | mode × gate-mode |
 | Stage statuses | 6 | 4 |

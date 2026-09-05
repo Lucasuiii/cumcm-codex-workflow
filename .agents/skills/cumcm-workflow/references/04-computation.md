@@ -68,10 +68,19 @@ The frozen tree mirrors the original relative paths, so the live counterpart of 
 
 Inputs under `problem/official/` are hashed where they live: they are immutable by intake contract and large attachments should not be duplicated per run. Every other formal input — `data/cleaned.csv` and friends, which the team regenerates — is frozen too, up to a size limit, so a preserved run stays reproducible after the data is rebuilt.
 
+A run may only use one backend per capability. That was a selector rule and a sentence in the docs; `RUN-E024` now enforces it, so a capability cannot end up with current official runs in both MATLAB and Python unless the user asked for cross-implementation validation. Warning while `working`, error once frozen.
+
+Stochastic work records its seeds so the simulation can be reproduced:
+
+```bash
+python3 scripts/record_run.py --project <p> --seed 20260907 --seed bootstrap=7 -- python3 code/mc.py
+```
+
 Two things a run may never claim:
 
 - **an output it did not write.** The recorder stats every declared output before and after execution. A program that exits 0 without rewriting its claim-bearing output would otherwise have the previous run's file frozen as its own, with a real hash and false provenance; the recorder refuses to write the manifest at all and says which file was not produced. An untouched intermediate or diagnostic output only warns.
-- **a verdict it did not reach.** Assertions are never inherited by a rerun. New code has not been verified by the old run's `pass`, and inheriting one would hand `MODEL-E009`/`MODEL-W010` evidence that never existed. A rerun that drops its parent's assertions says so on stderr.
+- **a verdict it did not reach.** Assertions carry their provenance. `--assert name=pass` is a note typed by the caller and is recorded as `source: "declared"`; `--assert-file` reads verdicts the program wrote itself and is recorded as `source: "recorded"`. Only recorded verdicts satisfy a frozen `verification_plan` (`MODEL-E009`/`MODEL-W010`), and an official run carrying only declared ones raises `RUN-W003`. Assertions are also never inherited by a rerun -- new code has not been verified by the old run's `pass` -- and a rerun that drops its parent's assertions says so on stderr.
+- **evidence that moved under it.** Declared source and formal inputs are hashed before execution and re-checked after. Freezing happens once the command exits, so a file edited mid-run would be frozen as something the run never read; the recorder refuses to write the manifest and names the file.
 
 Only a **successful official** rerun supersedes its parent. A failed or exploratory child replaces nothing — retiring the parent on its account would invalidate the only usable evidence — and `--follow-lineage` skips it, taking the newest qualifying successor when a parent has several children.
 
@@ -85,7 +94,7 @@ Each `RUN_MANIFEST.json` records:
 
 - selected language, rationale, entry point, runtime, dependencies, and MATLAB toolboxes when applicable;
 - a `sha256-tree-v1` source snapshot covering the executed code;
-- argument array, working directory, timestamps, exit status, stdout/stderr, environment, seeds, and assertions;
+- argument array, working directory, timestamps, exit status, stdout/stderr, environment, any `--seed` values, and assertions;
 - `formal_input` and `claim_bearing_output` hashes;
 - `official_run: true` only for the run selected to support formal results.
 

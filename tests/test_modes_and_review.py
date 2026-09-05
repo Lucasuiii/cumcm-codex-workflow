@@ -201,6 +201,28 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertNotIn("RESULT-E017", {item.rule_id for item in findings})
             self.assertEqual([item["run_id"] for item in resolve_official_computation(root)], ["RUN-Q1-001"])
 
+    def test_one_capability_may_not_have_official_runs_in_two_backends(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            rival = json.loads((root / "runs/RUN-Q1-001/RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            rival = dict(rival)
+            rival["run_id"] = "RUN-Q1-MATLAB"
+            rival["argv"] = ["matlab", "-batch", "solve"]
+            rival["implementation"] = dict(rival["implementation"], selected_language="matlab")
+            rival["stdout_path"] = "runs/RUN-Q1-MATLAB/stdout.log"
+            rival["stderr_path"] = "runs/RUN-Q1-MATLAB/stderr.log"
+            (root / "runs/RUN-Q1-MATLAB").mkdir(parents=True, exist_ok=True)
+            (root / "runs/RUN-Q1-MATLAB/stdout.log").write_text("done\n", encoding="utf-8")
+            (root / "runs/RUN-Q1-MATLAB/stderr.log").write_text("", encoding="utf-8")
+            write_json(root, "runs/RUN-Q1-MATLAB/RUN_MANIFEST.json", rival)
+
+            findings, _ = check_project(root, "computation")
+            clash = [item for item in findings if item.rule_id == "RUN-E024"]
+            self.assertTrue(clash, "two backends for one capability must be reported")
+            self.assertIn("CAP-Q1-001", clash[0].message)
+            self.assertEqual(clash[0].severity, "warning")  # working mode keeps exploring cheap
+
     def test_revision_requested_invalidates_stage_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -662,7 +662,7 @@ def check_model_verification(
                     "numerical",
                     "model-design",
                     path,
-                    f"frozen model has no executed verification: {ident} owns no official run assertion",
+                    f"frozen model has no executed verification: {ident} owns no assertion an official run recorded itself",
                     related_ids=[ident],
                 )
             )
@@ -859,6 +859,18 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str], su
     if not isinstance(assertions, list) or not assertions:
         if official_run:
             findings.append(finding("RUN-W001", "warning", "numerical", "computation", rel_path, "official run records no assertions"))
+    elif official_run and not any(isinstance(item, dict) and item.get("source") == "recorded" for item in assertions):
+        findings.append(
+            finding(
+                "RUN-W003",
+                "warning",
+                "numerical",
+                "computation",
+                rel_path,
+                "every assertion on this official run was declared on the command line, not recorded by the run",
+                remediation="have the program write its own verdicts and pass them with record_run.py --assert-file",
+            )
+        )
     elif any(isinstance(item, dict) and item.get("passed") is not True for item in assertions):
         # A failed assertion inside an exploratory run is a finding about the experiment,
         # not about the formal chain, so it never blocks.
@@ -1994,6 +2006,7 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
     run_output_roles: dict[str, dict[str, str]] = {}
     executed_capability_ids: set[str] = set()
     capability_assertions: dict[str, set[str]] = {}
+    capability_backends: dict[str, dict[str, list[str]]] = {}
     run_candidates: dict[str, set[str]] = {}
     run_count = 0
     superseded_ids: set[str] = set()
@@ -2017,15 +2030,23 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
                 is_official = run.get("official_run") is True and run.get("status") == "completed" and run.get("exit_code") == 0
                 if is_official:
                     official_run_ids.add(run["run_id"])
+                    # A verdict typed on the command line is a note, not evidence that
+                    # the run verified anything, so it cannot satisfy a verification plan.
                     names = {
                         str(item.get("name"))
                         for item in as_list(run.get("assertions"))
-                        if isinstance(item, dict) and nonempty(item.get("name"))
+                        if isinstance(item, dict) and nonempty(item.get("name")) and item.get("source") == "recorded"
                     }
                     for capability_id in as_list(run.get("capability_ids")):
                         capability_assertions.setdefault(str(capability_id), set()).update(names)
                 executed_capability_ids.update(str(value) for value in as_list(run.get("capability_ids")))
                 run_candidates[run["run_id"]] = {str(value) for value in as_list(run.get("candidate_ids"))}
+                if is_official:
+                    implementation = run.get("implementation")
+                    language = implementation.get("selected_language") if isinstance(implementation, dict) else None
+                    if nonempty(language) and run["run_id"] not in superseded_ids:
+                        for capability_id in as_list(run.get("capability_ids")):
+                            capability_backends.setdefault(str(capability_id), {}).setdefault(str(language), []).append(str(run["run_id"]))
                 run_output_roles[run["run_id"]] = {
                     str(entry.get("path")): str(entry.get("evidence_role"))
                     for entry in as_list(run.get("outputs"))
@@ -2039,6 +2060,24 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
                 capability_id = item_id(capability, "capability_id")
                 if capability_id not in executed_capability_ids:
                     findings.append(finding("RUN-E014", "error", "execution", "computation", CONTRACT_PATHS["capabilities"], f"capability declares execution without a run: {capability_id}", related_ids=[capability_id]))
+    # One official task, one backend. The selector and the docs said so; nothing checked it.
+    for capability_id, backends in sorted(capability_backends.items()):
+        if len(backends) < 2:
+            continue
+        detail = "; ".join(f"{language}: {', '.join(sorted(runs))}" for language, runs in sorted(backends.items()))
+        findings.append(
+            finding(
+                "RUN-E024",
+                "error" if frozen else "warning",
+                "execution",
+                "computation",
+                CONTRACT_PATHS["results"],
+                f"{capability_id} has current official runs in more than one backend ({detail})",
+                related_ids=[capability_id],
+                remediation="pick one backend for the task and retire the other run, or say the user asked for cross-implementation validation",
+            )
+        )
+
     if "model" in contracts and STAGES.index(stage) >= STAGES.index("model-design"):
         # Run references only make sense once runs are in scope for this check.
         runs_known = STAGES.index(stage) >= STAGES.index("computation")

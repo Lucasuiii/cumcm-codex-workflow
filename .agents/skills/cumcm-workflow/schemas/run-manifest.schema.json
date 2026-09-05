@@ -209,6 +209,25 @@
         "minLength": 1
       },
       "description": "Model candidates this run was evaluating. Exploratory runs use this to earn a selection."
+    },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {}
+        },
+        "additionalProperties": true
+      },
+      "description": "Seeds a stochastic run was given; recorded so a simulation can be reproduced."
     }
   },
   "$defs": {

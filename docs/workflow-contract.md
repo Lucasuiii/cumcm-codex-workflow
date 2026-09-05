@@ -31,11 +31,15 @@ Warning 和 suggestion 会进入报告，但不改变通过状态。
 | `RESULT-E017` | 正式结果仍引用被后续运行取代的运行 |
 | `RUN-E007`（inputs，被取代运行） | 降为 warning：官方目录下的 input 就地取哈希，历史运行读过的数据可以合法地变了 |
 | `CLAIM-W020` / `FIGURE-W013` | claim/figure 仍引用被取代的运行 |
+| `RUN-W003` | official run 的断言全部是命令行手打的，没有一条是运行自己写出来的 |
+| `RUN-E024` | 同一 capability 存在多个后端的当前 official run（working 为 warning） |
 
 记录期的两条硬规则（`record_run.py` 直接拒绝写 manifest）：
 
 - **不能冒领输出**：执行前后比对每个 declared output 的 mtime，未被本次写入的 claim 输出直接报错——否则一个 exit 0 却没干活的程序会把上一轮的结果连同真哈希一起冻结成自己的证据。intermediate/diagnostic 只警告。
 - **不能继承判决**：assertions 永不从父运行继承。新代码没被旧的 `pass` 验证过，继承它等于给 `MODEL-E009`/`MODEL-W010` 喂造假证据。
+- **不能手打判决充当已验证**：`--assert x=pass` 记为 `source: "declared"`（调用者的备注），`--assert-file` 读程序自己写出的判决，记为 `source: "recorded"`。只有后者能满足冻结模型的 `verification_plan`。
+- **证据不能在脚下移动**：声明的源码与 formal input 在执行前取哈希、执行后复核；冻结发生在命令退出之后，运行中被改过的文件会被冻结成"运行从未读过的东西"，直接拒绝记录。
 
 `--rerun` 追加而不覆盖；supersession 从 `parent_run_id` 链推导，不回写旧 manifest。**只有成功的 official child 才构成取代**——失败或探索性的 child 什么也没替代，让它退休父运行会把唯一可用的证据作废。一个父运行有多个 child 时，`--follow-lineage` 取最新的合格者。
 

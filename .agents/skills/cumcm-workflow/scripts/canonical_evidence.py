@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Resolve the one canonical RESULTS_INDEX -> official run -> source chain."""
+"""Resolve the one canonical RESULTS_INDEX -> official run -> source chain.
+
+Every formal consumer -- the computation handoff, the independent review package
+and paper->delivery -- goes through here, so "the run behind this result" means
+the same thing in all of them, superseded runs included.
+"""
 
 from __future__ import annotations
 
@@ -35,6 +40,7 @@ def resolve_official_computation(project: Path, results: dict[str, Any] | None =
         referenced.add(str(item["run_id"]))
 
     manifests: dict[str, tuple[str, dict[str, Any]]] = {}
+    superseded: set[str] = set()
     for manifest_path in sorted((project / "runs").glob("*/RUN_MANIFEST.json")):
         rel = manifest_path.relative_to(project).as_posix()
         run = read_object(manifest_path)
@@ -44,6 +50,10 @@ def resolve_official_computation(project: Path, results: dict[str, Any] | None =
         if run_id in manifests:
             raise ValueError(f"duplicate run_id in RUN_MANIFEST files: {run_id}")
         manifests[run_id] = (rel, run)
+        # Same rule the checker uses: only a successful official run retires its parent.
+        parent = str(run.get("parent_run_id", "")).strip()
+        if parent and parent != run_id and run.get("official_run") is True and run.get("status") == "completed" and run.get("exit_code") == 0:
+            superseded.add(parent)
 
     resolved: list[dict[str, Any]] = []
     for run_id in sorted(referenced):
@@ -53,6 +63,11 @@ def resolve_official_computation(project: Path, results: dict[str, Any] | None =
         manifest_path, run = candidate
         if run.get("official_run") is not True or run.get("status") != "completed" or run.get("exit_code") != 0:
             raise ValueError(f"formal result references a run that is not a successful official run: {run_id}")
+        if run_id in superseded:
+            raise ValueError(
+                f"formal result references {run_id}, which a later official run superseded; "
+                "re-point it with index_result.py --follow-lineage"
+            )
         implementation = run.get("implementation") if isinstance(run.get("implementation"), dict) else {}
         snapshot = implementation.get("source_snapshot")
         if not snapshot_matches(project, snapshot):

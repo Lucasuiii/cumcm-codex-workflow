@@ -41,6 +41,8 @@ from provenance import sha256_file, tree_snapshot
 
 WORKFLOW_VERSION = "0.6.0"
 INPUT_ROLES = {"formal": "formal_input", "auxiliary": "auxiliary_input"}
+FROZEN_KINDS = {"source", "outputs", "inputs"}
+MAX_FROZEN_INPUT_BYTES = 64 * 1024 * 1024
 OUTPUT_ROLES = {"claim": "claim_bearing_output", "intermediate": "intermediate_output", "diagnostic": "diagnostic_output"}
 
 
@@ -144,9 +146,30 @@ def freeze(root: Path, run_dir: Path, rel: str, kind: str) -> str:
 def live_path_of(frozen: str) -> str | None:
     """Inverse of freeze(): runs/<id>/source/code/solve.py -> code/solve.py."""
     parts = frozen.split("/")
-    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs"}:
+    if len(parts) > 3 and parts[0] == "runs" and parts[2] in FROZEN_KINDS:
         return "/".join(parts[3:])
     return None
+
+
+def mtime_of(root: Path, rel: str) -> int | None:
+    target = root / rel
+    return target.stat().st_mtime_ns if target.is_file() else None
+
+
+def freeze_input(root: Path, run_dir: Path, rel: str) -> tuple[str, bool]:
+    """Freeze a team-produced input; leave official material and huge files in place.
+
+    Official sources are immutable by intake contract and hash-guarded, and copying
+    a large attachment into every run is waste. Everything else is a file the team
+    can regenerate, so a preserved run needs its own copy to stay reproducible.
+    """
+    if rel.startswith("problem/official/"):
+        return rel, False
+    target = root / rel
+    if target.is_file() and target.stat().st_size > MAX_FROZEN_INPUT_BYTES:
+        print(f"input left in place (over {MAX_FROZEN_INPUT_BYTES // (1024 * 1024)} MiB): {rel}", file=sys.stderr)
+        return rel, False
+    return freeze(root, run_dir, rel, "inputs"), True
 
 
 def child_run_id(root: Path, parent: str) -> str:
@@ -230,7 +253,8 @@ def main() -> int:
         snapshot = previous.get("implementation", {}).get("source_snapshot", {})
         sources = [live_path_of(str(value)) or str(value) for value in snapshot.get("files", [])]
     declared_inputs = args.input or [
-        f"{item['path']}:{'formal' if item.get('evidence_role') == 'formal_input' else 'auxiliary'}"
+        f"{live_path_of(str(item['path'])) or item['path']}:"
+        f"{'formal' if item.get('evidence_role') == 'formal_input' else 'auxiliary'}"
         for item in previous.get("inputs", []) if isinstance(item, dict)
     ]
     declared_outputs = args.output or [
@@ -250,6 +274,11 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
+
+    # P0: a program that exits 0 without rewriting its output would otherwise have
+    # the previous run's file frozen as its own, with a real hash and false provenance.
+    declared_output_paths = [relative(root, spec.split(":", 1)[0]) for spec in declared_outputs]
+    mtimes_before = {rel: mtime_of(root, rel) for rel in declared_output_paths}
 
     started_at = utc_now()
     try:
@@ -273,8 +302,32 @@ def main() -> int:
 
     # Inputs are hashed where they live: official material is immutable by intake
     # contract, and a changed team input is drift worth seeing.
-    inputs = [file_record(root, relative(root, spec.split(":", 1)[0]), role)
-              for spec, role in ((s, split_role(s, INPUT_ROLES, "auxiliary_input")[1]) for s in declared_inputs)]
+    inputs = []
+    for spec in declared_inputs:
+        role = split_role(spec, INPUT_ROLES, "auxiliary_input")[1]
+        rel = relative(root, spec.split(":", 1)[0])
+        stored, frozen_here = freeze_input(root, run_dir, rel)
+        record = file_record(root, stored, role)
+        record["frozen"] = frozen_here
+        inputs.append(record)
+    untouched = [
+        rel for rel, before in mtimes_before.items()
+        if before is not None and mtime_of(root, rel) == before
+    ]
+    if untouched:
+        claim_paths = {
+            relative(root, spec.split(":", 1)[0])
+            for spec in declared_outputs
+            if split_role(spec, OUTPUT_ROLES, "diagnostic_output")[1] == "claim_bearing_output"
+        }
+        stale_claims = sorted(set(untouched) & claim_paths)
+        if stale_claims:
+            parser.error(
+                "the command exited but did not write: " + ", ".join(stale_claims)
+                + f" -- refusing to record a leftover file as this run's evidence (logs kept in {run_dir.relative_to(root)})"
+            )
+        print("declared output was not rewritten by this run: " + ", ".join(sorted(untouched)), file=sys.stderr)
+
     # Source and outputs are frozen: a rerun would otherwise overwrite exactly the
     # files this run's evidence points at.
     frozen_sources = [freeze(root, run_dir, rel, "source") for rel in sources]
@@ -322,7 +375,9 @@ def main() -> int:
         "environment": {"platform": platform.platform(), "python": platform.python_version()},
         "stdout_path": stdout_path.relative_to(root).as_posix(),
         "stderr_path": stderr_path.relative_to(root).as_posix(),
-        "assertions": parse_assertions(args.assertions, args.assert_file, root) or previous.get("assertions", []),
+        # Assertions are verdicts about THIS execution. Inheriting a parent's `pass`
+        # would hand formal verification evidence that was never produced.
+        "assertions": parse_assertions(args.assertions, args.assert_file, root),
         "parent_run_id": args.rerun or None,
     }
     destination = run_dir / "RUN_MANIFEST.json"
@@ -336,6 +391,12 @@ def main() -> int:
     print(f"recorded {grade} run {run_id} (exit {exit_code}) -> {destination.relative_to(root)}")
     if args.rerun:
         print(f"appended after {args.rerun}; that run and its evidence are untouched")
+        if previous.get("assertions") and not manifest["assertions"]:
+            print(
+                f"{args.rerun} recorded {len(previous['assertions'])} assertion(s); they were NOT inherited -- "
+                "re-declare with --assert or --assert-file so the new code is actually verified",
+                file=sys.stderr,
+            )
     for entry in outputs:
         if entry["evidence_role"] == "claim_bearing_output":
             print(f"claim-bearing output frozen at {entry['path']}")

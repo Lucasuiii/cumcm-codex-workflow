@@ -98,6 +98,8 @@ Exploratory runs are recorded, never trusted, and never block: a failed assertio
 
 Runs are append-only. `--rerun` appends `RUN-Q1-002` with `parent_run_id: RUN-Q1-001`; it never overwrites, because the parent is the only record of what the superseded run executed and produced. Each run freezes its declared source and outputs into `runs/<id>/source/…` and `runs/<id>/outputs/…`, mirroring the original layout, and hashes those copies — so a preserved run stays verifiable however the workspace changes, and `output_locator` names an immutable file.
 
+A run may only claim what it produced and what it verified: the recorder compares every declared output's timestamp across the execution and refuses to record a leftover file as this run's claim-bearing evidence, and a rerun never inherits its parent's assertion verdicts. Only a successful official rerun supersedes its parent, and every formal consumer resolves the current run through the same code.
+
 That does not weaken drift detection, it sharpens it. `RUN-E020` now compares the frozen copy with the live file and says the working tree has moved on from the run backing your results; superseded runs are exempt, and altering a frozen copy is `RUN-E021`. Supersession is derived from the parent chain and never written back — stamping the old manifest would change its hash and stale every decision bound to it. `RESULT-E017` catches a result still citing a superseded run; `index_result.py --follow-lineage` re-points it, explicitly, because which run backs a claim is judgement rather than a machine fact.
 
 ## Choosing one backend

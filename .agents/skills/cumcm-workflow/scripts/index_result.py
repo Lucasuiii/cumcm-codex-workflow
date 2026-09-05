@@ -62,17 +62,27 @@ def all_runs(root: Path) -> dict[str, dict[str, Any]]:
     return runs
 
 
+def successful_official(manifest: dict[str, Any]) -> bool:
+    return manifest.get("official_run") is True and manifest.get("status") == "completed" and manifest.get("exit_code") == 0
+
+
 def newest_descendant(runs: dict[str, dict[str, Any]], run_id: str) -> str:
-    """Walk parent_run_id links forward to the run that replaced this one."""
-    children = {
-        str(manifest.get("parent_run_id")): rid
-        for rid, manifest in runs.items()
-        if str(manifest.get("parent_run_id", "")).strip() and str(manifest.get("parent_run_id")) != rid
-    }
+    """Walk parent links forward through successful official runs only.
+
+    A failed or exploratory rerun replaces nothing, and a parent can have several
+    children, so the successor is the newest qualifying one rather than whichever
+    happened to be seen last.
+    """
+    children: dict[str, list[str]] = {}
+    for rid, manifest in runs.items():
+        parent = str(manifest.get("parent_run_id", "")).strip()
+        if parent and parent != rid and successful_official(manifest):
+            children.setdefault(parent, []).append(rid)
     seen = {run_id}
     current = run_id
     while current in children:
-        current = children[current]
+        candidates = sorted(children[current], key=lambda rid: (str(runs[rid].get("finished_at", "")), rid))
+        current = candidates[-1]
         if current in seen:
             break
         seen.add(current)

@@ -20,6 +20,7 @@ from init_latex_paper import commit_staged_tree
 from paper_visible_text_check import inspect_text
 from test_paper_pipeline import build_paper_ready_project
 from test_workflow_core import build_valid_project, write_json
+from canonical_evidence import resolve_official_computation
 from workflow_checks import check_project
 from plan_redo import build_plan
 
@@ -159,6 +160,46 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertIn("computation", after["stages_with_current_decision"])
             self.assertIn("RUN-E020", {item.rule_id for item in findings})
             self.assertGreater(after["blocking_error_count"], 0)
+
+    def supersede(self, root, *, official=True, exit_code=0):
+        """Append a child of RUN-Q1-001 by hand, so the fixture stays declarative."""
+        source = json.loads((root / "runs/RUN-Q1-001/RUN_MANIFEST.json").read_text(encoding="utf-8"))
+        child = dict(source)
+        child.update({
+            "run_id": "RUN-Q1-002", "parent_run_id": "RUN-Q1-001",
+            "official_run": official, "exit_code": exit_code,
+            "status": "completed" if exit_code == 0 else "failed",
+            "stdout_path": "runs/RUN-Q1-002/stdout.log", "stderr_path": "runs/RUN-Q1-002/stderr.log",
+        })
+        (root / "runs/RUN-Q1-002").mkdir(parents=True, exist_ok=True)
+        (root / "runs/RUN-Q1-002/stdout.log").write_text("child\n", encoding="utf-8")
+        (root / "runs/RUN-Q1-002/stderr.log").write_text("", encoding="utf-8")
+        write_json(root, "runs/RUN-Q1-002/RUN_MANIFEST.json", child)
+
+    def test_every_formal_consumer_agrees_on_what_a_superseded_run_means(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            self.supersede(root)
+            findings, summary = check_project(root, "validation")
+            rules = {item.rule_id for item in findings}
+            self.assertEqual(summary["superseded_run_ids"], ["RUN-Q1-001"])
+            self.assertIn("RESULT-E017", rules)   # the checker blocks
+            self.assertIn("CLAIM-W020", rules)    # the claim points at retired evidence
+            # the resolver every builder shares must refuse it too, not quietly package it
+            with self.assertRaises(ValueError) as raised:
+                resolve_official_computation(root)
+            self.assertIn("--follow-lineage", str(raised.exception))
+
+    def test_a_failed_child_leaves_every_consumer_untouched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            self.supersede(root, official=False, exit_code=3)
+            findings, summary = check_project(root, "validation")
+            self.assertEqual(summary["superseded_run_ids"], [])
+            self.assertNotIn("RESULT-E017", {item.rule_id for item in findings})
+            self.assertEqual([item["run_id"] for item in resolve_official_computation(root)], ["RUN-Q1-001"])
 
     def test_revision_requested_invalidates_stage_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:

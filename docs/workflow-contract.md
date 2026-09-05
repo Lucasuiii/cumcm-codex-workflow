@@ -29,9 +29,17 @@ Warning 和 suggestion 会进入报告，但不改变通过状态。
 | `RUN-E020` | 活文件与该 official run 的冻结源码不同（被取代的运行豁免） |
 | `RUN-E021` | 冻结证据本身缺失或被改动 |
 | `RESULT-E017` | 正式结果仍引用被后续运行取代的运行 |
-| `RUN-E007`（inputs，被取代运行） | 降为 warning：input 就地取哈希，历史运行读过的数据可以合法地变了 |
+| `RUN-E007`（inputs，被取代运行） | 降为 warning：官方目录下的 input 就地取哈希，历史运行读过的数据可以合法地变了 |
+| `CLAIM-W020` / `FIGURE-W013` | claim/figure 仍引用被取代的运行 |
 
-`--rerun` 追加而不覆盖；supersession 从 `parent_run_id` 链推导，不回写旧 manifest。重新指向结果必须用 `index_result.py --follow-lineage` 显式进行。
+记录期的两条硬规则（`record_run.py` 直接拒绝写 manifest）：
+
+- **不能冒领输出**：执行前后比对每个 declared output 的 mtime，未被本次写入的 claim 输出直接报错——否则一个 exit 0 却没干活的程序会把上一轮的结果连同真哈希一起冻结成自己的证据。intermediate/diagnostic 只警告。
+- **不能继承判决**：assertions 永不从父运行继承。新代码没被旧的 `pass` 验证过，继承它等于给 `MODEL-E009`/`MODEL-W010` 喂造假证据。
+
+`--rerun` 追加而不覆盖；supersession 从 `parent_run_id` 链推导，不回写旧 manifest。**只有成功的 official child 才构成取代**——失败或探索性的 child 什么也没替代，让它退休父运行会把唯一可用的证据作废。一个父运行有多个 child 时，`--follow-lineage` 取最新的合格者。
+
+checker、computation handoff、独立复核包和 paper→delivery 共用 `canonical_evidence.resolve_official_computation`，所以"当前正式运行"在四处含义一致，不会出现 checker 拦住而 builder 照样打包的情况。重新指向结果必须用 `index_result.py --follow-lineage` 显式进行。
 
 被取代的运行仍然是 `official_run: true`——它当时确实是正式运行。它只是不再是当前结论的依据。
 

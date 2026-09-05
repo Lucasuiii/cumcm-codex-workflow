@@ -709,7 +709,7 @@ def check_cross_question(data: Any, subproblem_ids: set[str], path: str) -> list
 def live_path_of(frozen: Any) -> str | None:
     """runs/<id>/source/code/solve.py -> code/solve.py (None if not a frozen path)."""
     parts = str(frozen).split("/")
-    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs"}:
+    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs", "inputs"}:
         return "/".join(parts[3:])
     return None
 
@@ -724,6 +724,10 @@ def superseded_run_ids(root: Path) -> set[str]:
     for manifest_path in discover_run_manifests(root):
         manifest, error = read_json(manifest_path)
         if error or not isinstance(manifest, dict):
+            continue
+        # A failed or exploratory rerun replaces nothing: it cannot back a result,
+        # so letting it retire its parent would invalidate the only usable evidence.
+        if manifest.get("official_run") is not True or manifest.get("status") != "completed" or manifest.get("exit_code") != 0:
             continue
         parent = manifest.get("parent_run_id")
         if nonempty(parent) and str(parent) != str(manifest.get("run_id")):
@@ -1119,7 +1123,9 @@ def check_claims(
     data: Any,
     known_ids: dict[str, set[str]],
     path: str,
+    superseded_ids: set[str] | None = None,
 ) -> list[Finding]:
+    superseded_ids = superseded_ids or set()
     findings = check_envelope(data, "claim_ledger", "validation", path)
     if not isinstance(data, dict):
         return findings
@@ -1153,6 +1159,8 @@ def check_claims(
                 referenced += 1
                 if ref not in known_ids.get(known_name, set()):
                     findings.append(finding("CLAIM-E009", "error", "structural", "validation", path, f"{ident} names unknown {known_name[:-1]}: {ref}", related_ids=[ident, str(ref)]))
+                elif known_name == "runs" and str(ref) in superseded_ids:
+                    findings.append(finding("CLAIM-W020", "warning", "execution", "validation", path, f"{ident} cites {ref}, which a later run superseded", related_ids=[ident, str(ref)]))
         if state in {"supported_not_reproduced", "reproduced", "partially_supported"} and referenced == 0:
             findings.append(finding("CLAIM-E010", "error", "semantic", "validation", path, f"{ident} requires linked evidence", related_ids=[ident]))
         certificate_types = claim_certificate_types(text)
@@ -1186,7 +1194,8 @@ def check_claims(
     return findings
 
 
-def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str], path: str) -> list[Finding]:
+def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str], path: str, superseded_ids: set[str] | None = None) -> list[Finding]:
+    superseded_ids = superseded_ids or set()
     findings = check_envelope(data, "figure_manifest", "paper", path)
     if not isinstance(data, dict):
         return findings
@@ -1208,6 +1217,8 @@ def check_figures(data: Any, root: Path, result_ids: set[str], run_ids: set[str]
         for run_id in as_list(figure.get("run_ids")):
             if run_id not in run_ids:
                 findings.append(finding("FIGURE-E007", "error", "structural", "paper", path, f"{ident} names unknown run: {run_id}", related_ids=[ident, str(run_id)]))
+            elif str(run_id) in superseded_ids:
+                findings.append(finding("FIGURE-W013", "warning", "structural", "paper", path, f"{ident} cites {run_id}, which a later run superseded", related_ids=[ident, str(run_id)]))
         if kind != "conceptual" and not as_list(figure.get("result_ids")):
             findings.append(finding("FIGURE-E008", "error", "semantic", "paper", path, f"quantitative figure lacks result provenance: {ident}", related_ids=[ident]))
         review = figure.get("visual_review")
@@ -2056,11 +2067,11 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
         findings.extend(check_schema(contracts["figures"], "figures", "paper", CONTRACT_PATHS["figures"]))
         if isinstance(contracts["figures"], dict):
             figure_ids = ids(contracts["figures"].get("figures"), "figure_id")
-        findings.extend(check_figures(contracts["figures"], root, result_ids, run_ids, CONTRACT_PATHS["figures"]))
+        findings.extend(check_figures(contracts["figures"], root, result_ids, run_ids, CONTRACT_PATHS["figures"], superseded_ids))
     if "claims" in contracts:
         findings.extend(check_schema(contracts["claims"], "claims", "validation", CONTRACT_PATHS["claims"]))
         known = {"facts": fact_ids, "models": model_ids, "runs": run_ids, "results": result_ids, "figures": figure_ids}
-        findings.extend(check_claims(contracts["claims"], known, CONTRACT_PATHS["claims"]))
+        findings.extend(check_claims(contracts["claims"], known, CONTRACT_PATHS["claims"], superseded_ids))
         if isinstance(contracts["claims"], dict):
             claim_ids = ids(contracts["claims"].get("claims"), "claim_id")
     known_evidence_ids = set().union(fact_ids, model_ids, run_ids, result_ids, figure_ids, claim_ids)

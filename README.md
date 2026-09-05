@@ -159,7 +159,14 @@ ERROR RUN-E020  the working tree no longer matches this official run: code/solve
 
 `superseded` 由 `parent_run_id` 链**推导**，绝不回写旧 manifest——回写会改变它的哈希，把已经绑定它的 accepted decision 全部打成 stale。结果仍指着被取代的运行时报 `RESULT-E017`，用 `index_result.py --follow-lineage` 显式重新指向：换哪次运行支撑结论是语义判断，不能让工具偷偷替你做。
 
-`formal_input` 不冻结（官方附件可能很大，且已被 intake 的不可变契约保护）；被取代运行的 input 哈希不符降为 warning。
+`problem/official/` 下的 input 就地取哈希（不可变契约已保护，且附件可能很大）；其余 formal input（`data/cleaned.csv` 这类会被重新生成的）同样冻结，有体积上限。
+
+还有两条记录期的硬规则，都是防伪造：
+
+- **不能冒领输出**。执行前后比对每个 declared output 的 mtime。一个 exit 0 却没写文件的程序，否则会把上一轮的结果连同真哈希一起冻结成自己的 claim 证据——真哈希、假出处。这种情况 `record_run.py` 直接拒绝写 manifest 并指出是哪个文件。
+- **不能继承判决**。`--rerun` 永不继承父运行的 assertions。新代码没有被旧的 `pass` 验证过，继承它等于凭空给 `MODEL-E009`（冻结模型必须有已执行的验证）喂证据。
+
+**只有成功的 official child 才构成取代**：失败或探索性的重跑什么也没替代。checker、handoff、复核包和 delivery 共用同一个解析器，所以"当前正式运行"四处含义一致。claim/figure 仍引用被取代运行时报 `CLAIM-W020`/`FIGURE-W013`。
 
 ---
 

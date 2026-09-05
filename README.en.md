@@ -113,7 +113,9 @@ Exploratory runs are recorded, never trusted, and never block. Only a successful
 ERROR RUN-E020  the working tree no longer matches this official run: code/solve.py
 ```
 
-Superseded runs are exempt from that (of course they differ); altering a frozen copy is a different failure, `RUN-E021`. Supersession is derived from the parent chain and never written back — stamping the old manifest would change its hash and stale every decision bound to it. A result still citing a superseded run raises `RESULT-E017`, and `index_result.py --follow-lineage` re-points it explicitly, because choosing which run backs a claim is judgement, not a machine fact.
+A run may also only claim what it produced and what it verified: declared outputs are checked for a changed timestamp across the execution, so a program that exits 0 without rewriting its output cannot have the previous run's file frozen as its own evidence, and a rerun never inherits its parent's assertion verdicts. Only a *successful official* rerun supersedes its parent, and every formal consumer resolves the current run through one shared resolver.
+
+Superseded runs are exempt from drift detection (of course they differ); altering a frozen copy is a different failure, `RUN-E021`. Supersession is derived from the parent chain and never written back — stamping the old manifest would change its hash and stale every decision bound to it. A result still citing a superseded run raises `RESULT-E017`, and `index_result.py --follow-lineage` re-points it explicitly, because choosing which run backs a claim is judgement, not a machine fact.
 
 ## 5. Iterating and scoped redo
 

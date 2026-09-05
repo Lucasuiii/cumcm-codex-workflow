@@ -281,6 +281,131 @@ print("greedy done")
 """
 
 
+NO_OP = """print("did nothing")
+"""
+
+
+class ProvenanceIntegrityTests(unittest.TestCase):
+    """A run may only claim what it actually produced and actually verified."""
+
+    def test_a_leftover_file_is_never_recorded_as_this_runs_claim_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            leftover = json.loads((project / "results" / "q1_output.json").read_text(encoding="utf-8"))
+
+            (project / "code" / "noop.py").write_text(NO_OP, encoding="utf-8")
+            refused = run_script(
+                "record_run.py", "--project", str(project), "--run-id", "RUN-NOOP", "--official",
+                "--capability", "CAP-Q1-001", "--source", "code/noop.py",
+                "--output", "results/q1_output.json:claim", "--", sys.executable, "code/noop.py",
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("did not write", refused.stderr)
+            self.assertFalse((project / "runs" / "RUN-NOOP" / "RUN_MANIFEST.json").exists())
+            # the earlier run's output is untouched and still belongs to it
+            self.assertEqual(json.loads((project / "results" / "q1_output.json").read_text(encoding="utf-8")), leftover)
+
+    def test_an_untouched_diagnostic_output_only_warns(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            (project / "notes.txt").write_text("kept\n", encoding="utf-8")
+            (project / "code" / "noop.py").write_text(NO_OP, encoding="utf-8")
+            recorded = run_script("record_run.py", "--project", str(project), "--run-id", "RUN-DIAG",
+                                  "--source", "code/noop.py", "--output", "notes.txt:diagnostic",
+                                  "--", sys.executable, "code/noop.py")
+            self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
+            self.assertIn("was not rewritten", recorded.stderr)
+            self.assertTrue((project / "runs" / "RUN-DIAG" / "RUN_MANIFEST.json").is_file())
+
+    def test_a_rerun_never_inherits_the_parents_assertion_verdicts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            parent = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual([item["name"] for item in parent["assertions"]], ["enumeration coverage"])
+
+            (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
+            again = run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001", "--official")
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+            child = json.loads((project / "runs" / "RUN-Q1-002" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(child["assertions"], [])
+            self.assertIn("NOT inherited", again.stderr)
+
+    def test_an_exploratory_rerun_does_not_retire_the_official_run_it_branched_from(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
+            # a successful rerun that was never promoted: it replaces nothing
+            probe = run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001",
+                               "--run-id", "RUN-PROBE")
+            self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+            manifest = json.loads((project / "runs" / "RUN-PROBE" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["parent_run_id"], "RUN-Q1-001")
+            self.assertFalse(manifest["official_run"])
+
+            findings, summary = check_project(project, "computation")
+            self.assertEqual(summary["superseded_run_ids"], [])
+            self.assertNotIn("RESULT-E017", {item.rule_id for item in findings})
+
+    def test_a_failed_rerun_cannot_even_be_recorded_against_a_claim_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            (project / "code" / "broken.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+            refused = run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001",
+                                 "--run-id", "RUN-BAD", "--", sys.executable, "code/broken.py")
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((project / "runs" / "RUN-BAD" / "RUN_MANIFEST.json").exists())
+            _, summary = check_project(project, "computation")
+            self.assertEqual(summary["superseded_run_ids"], [])
+
+    def test_follow_lineage_ignores_a_failed_sibling(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            RecorderTests.record_official(self, project)
+            (project / "code" / "broken.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+            run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001",
+                       "--run-id", "RUN-BAD", "--", sys.executable, "code/broken.py")
+            (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
+            run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001", "--official",
+                       "--run-id", "RUN-GOOD", "--assert", "enumeration coverage=pass")
+            moved = run_script("index_result.py", "--project", str(project), "--follow-lineage")
+            self.assertEqual(moved.returncode, 0, moved.stdout + moved.stderr)
+            index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
+            self.assertEqual(index["results"][0]["run_id"], "RUN-GOOD")
+
+    def test_a_team_input_is_frozen_while_official_material_stays_in_place(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            (project / "data").mkdir(exist_ok=True)
+            (project / "data" / "cleaned.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+            recorded = run_script(
+                "record_run.py", "--project", str(project), "--run-id", "RUN-IN", "--official",
+                "--capability", "CAP-Q1-001", "--source", "code/solve.py",
+                "--input", "problem/official/problem.txt:formal",
+                "--input", "data/cleaned.csv:formal",
+                "--output", "results/q1_output.json:claim",
+                "--assert", "enumeration coverage=pass", "--", sys.executable, "code/solve.py",
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stdout + recorded.stderr)
+            manifest = json.loads((project / "runs" / "RUN-IN" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            by_path = {item["path"]: item for item in manifest["inputs"]}
+            self.assertIn("problem/official/problem.txt", by_path)
+            self.assertFalse(by_path["problem/official/problem.txt"]["frozen"])
+            self.assertIn("runs/RUN-IN/inputs/data/cleaned.csv", by_path)
+            self.assertTrue(by_path["runs/RUN-IN/inputs/data/cleaned.csv"]["frozen"])
+
+            run_script("index_result.py", "--project", str(project), "--result-id", "RES-Q1-001",
+                       "--run", "RUN-IN", "--locator", "results/q1_output.json#/minimum_cost",
+                       "--name", "Minimum cost", "--unit", "cost", "--scope", "declared candidates only")
+            # regenerating the team input does not invalidate the preserved run
+            (project / "data" / "cleaned.csv").write_text("a,b\n9,9\n", encoding="utf-8")
+            findings, _ = check_project(project, "computation")
+            self.assertEqual([item for item in findings if item.severity == "error"], [])
+
+
 class CandidateSelectionTests(unittest.TestCase):
     """The full Problem Analysis -> candidates -> exploratory evaluation -> selection chain.
 

@@ -64,9 +64,18 @@ runs/RUN-Q1-002/
 └── outputs/results/q1.json     # the output as produced; the locator points here
 ```
 
-The frozen tree mirrors the original relative paths, so the live counterpart of `runs/<id>/source/code/solve.py` is `code/solve.py`. That mapping is what keeps drift detection alive: `RUN-E020` compares the two and reports that the working tree has moved on from this official run. A superseded run is exempt; altering a frozen copy is `RUN-E021`.
+The frozen tree mirrors the original relative paths, so the live counterpart of `runs/<id>/source/code/solve.py` is `code/solve.py`; team inputs land under `runs/<id>/inputs/` the same way. That mapping is what keeps drift detection alive: `RUN-E020` compares the two and reports that the working tree has moved on from this official run. A superseded run is exempt; altering a frozen copy is `RUN-E021`.
 
-Formal inputs are hashed where they live rather than copied — official material is immutable by intake contract, and large attachments should not be duplicated per run. A superseded run whose input has since changed reports a warning, not an error.
+Inputs under `problem/official/` are hashed where they live: they are immutable by intake contract and large attachments should not be duplicated per run. Every other formal input — `data/cleaned.csv` and friends, which the team regenerates — is frozen too, up to a size limit, so a preserved run stays reproducible after the data is rebuilt.
+
+Two things a run may never claim:
+
+- **an output it did not write.** The recorder stats every declared output before and after execution. A program that exits 0 without rewriting its claim-bearing output would otherwise have the previous run's file frozen as its own, with a real hash and false provenance; the recorder refuses to write the manifest at all and says which file was not produced. An untouched intermediate or diagnostic output only warns.
+- **a verdict it did not reach.** Assertions are never inherited by a rerun. New code has not been verified by the old run's `pass`, and inheriting one would hand `MODEL-E009`/`MODEL-W010` evidence that never existed. A rerun that drops its parent's assertions says so on stderr.
+
+Only a **successful official** rerun supersedes its parent. A failed or exploratory child replaces nothing — retiring the parent on its account would invalidate the only usable evidence — and `--follow-lineage` skips it, taking the newest qualifying successor when a parent has several children.
+
+Every formal consumer resolves "the run behind this result" through the same code, so the checker, the computation handoff, the review package and paper→delivery all refuse a superseded run rather than one of them quietly packaging it. Claims and figures still citing a retired run raise `CLAIM-W020` / `FIGURE-W013`.
 
 Never edit a run directory by hand, and never re-point a result at a different run silently: `index_result.py --follow-lineage` exists so that choosing the run behind a claim stays a deliberate act.
 

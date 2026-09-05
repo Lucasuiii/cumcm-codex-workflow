@@ -31,7 +31,7 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 -m compileall -q .agents/skills/cumcm-workflow/scripts tests
 ```
 
-`tests/test_v06_recorders.py` runs real subprocesses and a real `xelatex` compile; it skips the CJK case when the `ctex` class is not installed. Every other test file works on synthetic fixtures.
+`tests/test_recorders.py` runs real subprocesses and a real `xelatex` compile; it skips the CJK case when the `ctex` class is not installed. Every other test file works on synthetic fixtures.
 
 When you add a rule ID, add the test that makes it fire and the test that proves it does not fire in `working` mode.
 

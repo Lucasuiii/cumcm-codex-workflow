@@ -196,7 +196,7 @@ python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 -m compileall -q .agents/skills/cumcm-workflow/scripts tests
 ```
 
-CI runs the contract tests on Python 3.10 and 3.13. `tests/test_v06_recorders.py` exercises the recorder chain with real execution and a real `xelatex` compile, skipping when the engine or the ctex class is absent.
+CI runs the contract tests on Python 3.10 and 3.13. `tests/test_recorders.py` exercises the recorder chain with real execution and a real `xelatex` compile, skipping when the engine or the ctex class is absent.
 
 ## 12. Limits and licence
 

@@ -100,12 +100,20 @@ python3 $S/index_result.py --project <p> --result-id RES-Q1-001 --run RUN-Q1-001
   --locator results/q1.json#/minimum_cost --name "Minimum cost" --unit CNY \
   --scope "declared candidates only"
 
-# after a code change, one command re-executes and re-binds
+# a rerun appends a successor; the parent and its evidence are untouched
 python3 $S/record_run.py --project <p> --rerun RUN-Q1-001 --official
-python3 $S/index_result.py --project <p> --refresh
+python3 $S/index_result.py --project <p> --follow-lineage
 ```
 
 Exploratory runs are recorded, never trusted, and never block. Only a successful `official_run: true` run may support a formal result.
+
+**Runs are append-only and their evidence is frozen.** `--rerun` never overwrites: it appends `RUN-Q1-002` with `parent_run_id: RUN-Q1-001`, and every run copies its declared source and outputs into `runs/<id>/source/…` and `runs/<id>/outputs/…`, mirroring the original layout. Frozen copies are immutable, so a preserved run stays verifiable forever — and the most valuable check survives, because staleness is now measured as *frozen copy versus live file*:
+
+```
+ERROR RUN-E020  the working tree no longer matches this official run: code/solve.py
+```
+
+Superseded runs are exempt from that (of course they differ); altering a frozen copy is a different failure, `RUN-E021`. Supersession is derived from the parent chain and never written back — stamping the old manifest would change its hash and stale every decision bound to it. A result still citing a superseded run raises `RESULT-E017`, and `index_result.py --follow-lineage` re-points it explicitly, because choosing which run backs a claim is judgement, not a machine fact.
 
 ## 5. Iterating and scoped redo
 

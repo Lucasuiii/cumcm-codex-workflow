@@ -134,6 +134,33 @@ record_run.py --project <p> -- python3 code/try.py
 
 这是有意的：Deferred Model Selection 的全部收益都来自"试算便宜"。
 
+### 运行是追加的，证据是冻结的
+
+`--rerun` **不覆盖**，它追加一个新运行（`RUN-Q1-001` → `RUN-Q1-002`），`parent_run_id` 指向被取代的那个。父运行连同日志原封不动留下——"改代码之前那次正式运行算出了什么"永远答得上来。
+
+每次运行还会把 `--source` 和 `--output` **冻结**进自己的目录，镜像原来的相对路径：
+
+```text
+runs/RUN-Q1-002/
+├── RUN_MANIFEST.json
+├── stdout.log  stderr.log
+├── source/code/solve.py        ← 执行时那一版代码的副本
+└── outputs/results/q1.json     ← 那次产出的副本，locator 指这里
+```
+
+冻结副本不可变，所以被保留的运行永远可验证。而"改了代码却没重跑"这条最有价值的检查并没有丢——它改成比对**冻结副本与当前活文件**：
+
+```
+ERROR RUN-E020  the working tree no longer matches this official run: code/solve.py
+                remediation: record_run.py --rerun RUN-Q1-001 --official
+```
+
+被取代的运行豁免这条（它当然不一样，这正是你取代它的原因）；反过来，改动冻结副本本身是另一类失败 `RUN-E021`（证据被篡改）。
+
+`superseded` 由 `parent_run_id` 链**推导**，绝不回写旧 manifest——回写会改变它的哈希，把已经绑定它的 accepted decision 全部打成 stale。结果仍指着被取代的运行时报 `RESULT-E017`，用 `index_result.py --follow-lineage` 显式重新指向：换哪次运行支撑结论是语义判断，不能让工具偷偷替你做。
+
+`formal_input` 不冻结（官方附件可能很大，且已被 intake 的不可变契约保护）；被取代运行的 input 哈希不符降为 warning。
+
 ---
 
 ## 5. 两个旋钮
@@ -193,11 +220,11 @@ python3 $S/index_result.py --project <p> --result-id RES-Q1-001 --run RUN-Q1-001
 
 数值从 locator 读回，不经过你的手。
 
-**⑥ 改了代码？** 一条命令重放并重新绑定：
+**⑥ 改了代码？** 追加一次继任运行，父运行原封不动留下：
 
 ```bash
-python3 $S/record_run.py --project <p> --rerun RUN-Q1-001 --official
-python3 $S/index_result.py --project <p> --refresh
+python3 $S/record_run.py --project <p> --rerun RUN-Q1-001 --official   # 产出 RUN-Q1-002
+python3 $S/index_result.py --project <p> --follow-lineage
 ```
 
 **⑦ 冻结与复核**：
@@ -251,8 +278,8 @@ python3 $S/plan_redo.py --project <p> --changed code/solve_q2.py
 
 ```text
 computation
-  - re-run RUN-Q2-003: record_run.py --rerun RUN-Q2-003 --official
-  - re-index results after the rerun: RES-Q2-001
+  - re-run RUN-Q2-003: record_run.py --rerun RUN-Q2-003 --official (appends a successor)
+  - re-point results to the successor: index_result.py --follow-lineage (RES-Q2-001)
 validation
   - targeted re-review covers: F-003
   - rebuild the package: build_independent_review_package.py --review-mode auto --refresh

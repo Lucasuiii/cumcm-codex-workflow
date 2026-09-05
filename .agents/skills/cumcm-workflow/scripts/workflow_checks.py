@@ -706,13 +706,42 @@ def check_cross_question(data: Any, subproblem_ids: set[str], path: str) -> list
     return findings
 
 
+def live_path_of(frozen: Any) -> str | None:
+    """runs/<id>/source/code/solve.py -> code/solve.py (None if not a frozen path)."""
+    parts = str(frozen).split("/")
+    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs"}:
+        return "/".join(parts[3:])
+    return None
+
+
+def superseded_run_ids(root: Path) -> set[str]:
+    """A run is superseded when a later run names it as its parent.
+
+    Derived, never written back: stamping the old manifest would change its hash
+    and stale every accepted decision that bound it.
+    """
+    superseded: set[str] = set()
+    for manifest_path in discover_run_manifests(root):
+        manifest, error = read_json(manifest_path)
+        if error or not isinstance(manifest, dict):
+            continue
+        parent = manifest.get("parent_run_id")
+        if nonempty(parent) and str(parent) != str(manifest.get("run_id")):
+            superseded.add(str(parent))
+    return superseded
+
+
 def discover_run_manifests(root: Path) -> list[Path]:
     runs = root / "runs"
     return sorted(runs.glob("*/RUN_MANIFEST.json")) if runs.is_dir() else []
 
 
-def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) -> list[Finding]:
-    """Official runs carry the formal evidence burden; exploratory runs are kept but never block."""
+def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str], superseded: bool = False) -> list[Finding]:
+    """Official runs carry the formal evidence burden; exploratory runs are kept but never block.
+
+    A superseded run is history: its frozen evidence must still verify, but the
+    workspace has legitimately moved on from the files it read.
+    """
     findings = check_envelope(data, "run_manifest", "computation", rel_path)
     if not isinstance(data, dict):
         return findings
@@ -745,8 +774,33 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
         entry_point = safe_project_path(root, str(implementation.get("entry_point", "")).split(":", 1)[0])
         if entry_point is None or not entry_point.is_file():
             findings.append(finding("RUN-E019", sev, "execution", "computation", rel_path, "selected implementation entry point is missing"))
-        if official_run and not snapshot_matches(root, implementation.get("source_snapshot")):
-            findings.append(finding("RUN-E020", "error", "execution", "computation", rel_path, "official run source snapshot is missing or stale"))
+        snapshot = implementation.get("source_snapshot")
+        if official_run and not snapshot_matches(root, snapshot):
+            findings.append(finding("RUN-E021", "error", "execution", "computation", rel_path, "frozen source evidence is missing or was altered"))
+        elif official_run and not superseded and isinstance(snapshot, dict):
+            # The frozen copy is immutable, so staleness now means the working tree
+            # moved on from the run that backs the formal results.
+            drifted = []
+            for frozen in as_list(snapshot.get("files")):
+                live = live_path_of(frozen)
+                frozen_path = safe_project_path(root, frozen)
+                live_file = safe_project_path(root, live) if live else None
+                if live is None or frozen_path is None or live_file is None:
+                    continue
+                if not live_file.is_file() or sha256(live_file) != sha256(frozen_path):
+                    drifted.append(live)
+            if drifted:
+                findings.append(
+                    finding(
+                        "RUN-E020",
+                        "error",
+                        "execution",
+                        "computation",
+                        rel_path,
+                        "the working tree no longer matches this official run: " + ", ".join(sorted(drifted)),
+                        remediation=f"record_run.py --rerun {data.get('run_id')} --official",
+                    )
+                )
         argv = [str(value).casefold() for value in as_list(data.get("argv"))]
         if language == "matlab" and argv and not any("matlab" in value for value in argv):
             findings.append(finding("RUN-E021", sev, "execution", "computation", rel_path, "MATLAB implementation is not bound to a MATLAB command"))
@@ -783,7 +837,10 @@ def check_run(data: Any, root: Path, rel_path: str, capability_ids: set[str]) ->
                 if not nonempty(recorded_hash):
                     findings.append(finding("RUN-E015", sev, "execution", "computation", rel_path, f"required hash is missing for {role}: {entry.get('path')}"))
                 elif recorded_hash != sha256(file_path):
-                    findings.append(finding("RUN-E007", sev, "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
+                    # Inputs are hashed in place, so a superseded run legitimately
+                    # points at material the workspace has since regenerated.
+                    drift_sev = "warning" if (superseded and kind == "inputs") else sev
+                    findings.append(finding("RUN-E007", drift_sev, "execution", "computation", rel_path, f"hash mismatch for {kind[:-1]}: {entry.get('path')}"))
             elif nonempty(recorded_hash) and recorded_hash != sha256(file_path):
                 findings.append(finding("RUN-W007", "warning", "execution", "computation", rel_path, f"optional hash is stale for {role}: {entry.get('path')}"))
             if entry.get("size") is not None and entry.get("size") != file_path.stat().st_size:
@@ -827,7 +884,9 @@ def check_results(
     official_run_ids: set[str],
     run_output_roles: dict[str, dict[str, str]],
     path: str,
+    superseded_ids: set[str] | None = None,
 ) -> list[Finding]:
+    superseded_ids = superseded_ids or set()
     findings = check_envelope(data, "results_index", "computation", path)
     if not isinstance(data, dict):
         return findings
@@ -841,6 +900,19 @@ def check_results(
             findings.append(finding("RESULT-E006", "error", "execution", "computation", path, f"{ident} names unknown run: {result.get('run_id')}", related_ids=[ident]))
         elif result.get("run_id") not in official_run_ids:
             findings.append(finding("RESULT-E016", "error", "execution", "computation", path, f"{ident} must reference a successful official run", related_ids=[ident]))
+        elif str(result.get("run_id")) in superseded_ids:
+            findings.append(
+                finding(
+                    "RESULT-E017",
+                    "error",
+                    "execution",
+                    "computation",
+                    path,
+                    f"{ident} still cites {result.get('run_id')}, which a later run superseded",
+                    related_ids=[ident, str(result.get("run_id"))],
+                    remediation="index_result.py --follow-lineage, or say why the earlier run is the one you mean",
+                )
+            )
         if result.get("evidence_state") not in EVIDENCE_STATES:
             findings.append(finding("RESULT-E007", "error", "structural", "computation", path, f"{ident} has invalid evidence_state", related_ids=[ident]))
         locator = result.get("output_locator")
@@ -1913,7 +1985,9 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
     capability_assertions: dict[str, set[str]] = {}
     run_candidates: dict[str, set[str]] = {}
     run_count = 0
+    superseded_ids: set[str] = set()
     if STAGES.index(stage) >= STAGES.index("computation"):
+        superseded_ids = superseded_run_ids(root)
         run_paths = discover_run_manifests(root)
         if not run_paths:
             findings.append(finding("RUN-E009", "error", "execution", "computation", "runs/", "no run manifests found; record one with record_run.py"))
@@ -1946,7 +2020,7 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
                     for entry in as_list(run.get("outputs"))
                     if isinstance(entry, dict) and nonempty(entry.get("path"))
                 }
-            findings.extend(check_run(run, root, rel, capability_ids))
+            findings.extend(check_run(run, root, rel, capability_ids, str(run.get("run_id")) in superseded_ids))
         if "capabilities" in contracts and isinstance(contracts["capabilities"], dict):
             for capability in as_list(contracts["capabilities"].get("capabilities")):
                 if not isinstance(capability, dict) or capability.get("lifecycle_state") not in {"executed", "validated"}:
@@ -1962,7 +2036,7 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
         findings.extend(check_model_verification(contracts["model"], capability_assertions, CONTRACT_PATHS["model"]))
     if "results" in contracts:
         findings.extend(check_schema(contracts["results"], "results", "computation", CONTRACT_PATHS["results"]))
-        findings.extend(check_results(contracts["results"], root, run_ids, official_run_ids, run_output_roles, CONTRACT_PATHS["results"]))
+        findings.extend(check_results(contracts["results"], root, run_ids, official_run_ids, run_output_roles, CONTRACT_PATHS["results"], superseded_ids))
         result_ids = ids(contracts["results"].get("results"), "result_id") if isinstance(contracts["results"], dict) else set()
         if "capabilities" in contracts and isinstance(contracts["capabilities"], dict):
             for capability in as_list(contracts["capabilities"].get("capabilities")):
@@ -2051,6 +2125,7 @@ def check_project(root: Path, stage: str, gate_mode: str = "enforce") -> tuple[l
         "contracts_loaded": sorted(contracts),
         "run_count": run_count,
         "official_run_count": len(official_run_ids),
+        "superseded_run_ids": sorted(superseded_ids),
         "model_candidates": candidate_summary(contracts.get("model")),
         "stages_with_current_decision": trusted_stage_snapshots(root, stage),
         "finding_counts": {

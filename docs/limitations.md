@@ -14,4 +14,6 @@
 - 候选比较只能验证形式：恰好一个 selected、有理由、引用了真实运行。它无法判断你的 `discriminating_evidence` 是否真的能区分两个模型，也无法判断被淘汰的候选是不是其实更好——那是数学判断，属于独立复核。
 - 冻结后的 `MODEL_CONTRACT` 可能退化成对已写好代码的事后描述。机器只能检查 `verification_plan` 是否对应到已记录的断言；"这是设计承诺还是代码转录"是 `REVIEW_REQUEST.md` 里点名的失败类，只能由 fresh-context reviewer 判断。
 - `record_compile.py` 的 layout checks 来自编译日志，能发现 overfull box、未定义引用、缺字和字体错误，但发现不了"图中文字太小""这张表放错了位置"这类只有看图才知道的问题。逐页 PNG 已经渲染到 `.cumcm/tmp/pages/`，仍然需要人去看。
+- 冻结证据保证被保留的运行可验证，但它证明不了那次运行的数学是对的，也拦不住有人在冻结之前就把代码写错。
+- `runs/` 会随重跑次数增长（每次一份源码和输出的副本）。CUMCM 规模下是几十 KB 量级；真正的大数据集作为 `formal_input` 不会被复制。
 - 记录器只在被调用时记录。绕过 `record_run.py` 直接执行仍然可能产生无证据的结果；检查器只能发现"没有 official run 支撑"，不能发现"你在别处跑过"。

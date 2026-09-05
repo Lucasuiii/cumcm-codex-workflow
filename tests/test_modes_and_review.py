@@ -143,7 +143,12 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertNotIn("IREVIEW-E012", rules)
             self.assertEqual(summary["blocking_error_count"], 0)
 
-    def test_stage_snapshot_trust_ends_when_code_changes(self):
+    def test_editing_code_after_the_official_run_blocks_even_though_the_decision_still_binds(self):
+        """The decision bound frozen evidence, which did not change; the working tree did.
+
+        Reporting it once, at the run, is more precise than also staling the
+        decision -- and it still blocks.
+        """
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_paper_ready_project(root)
@@ -151,8 +156,9 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertIn("computation", before["stages_with_current_decision"])
             (root / "code" / "solve.py").write_text("print('changed after official run')\n", encoding="utf-8")
             findings, after = check_project(root, "delivery")
-            self.assertNotIn("computation", after["stages_with_current_decision"])
+            self.assertIn("computation", after["stages_with_current_decision"])
             self.assertIn("RUN-E020", {item.rule_id for item in findings})
+            self.assertGreater(after["blocking_error_count"], 0)
 
     def test_revision_requested_invalidates_stage_snapshot(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -385,7 +391,7 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertEqual(payload["editable_latex"]["entrypoint"], "paper/main.tex")
             self.assertEqual(payload["editable_latex"]["source_snapshot"]["entrypoint"], "paper/main.tex")
             self.assertEqual(payload["computation_evidence"][0]["run_id"], "RUN-Q1-001")
-            self.assertIn("code/solve.py", payload["computation_evidence"][0]["source_files"])
+            self.assertIn("runs/RUN-Q1-001/source/code/solve.py", payload["computation_evidence"][0]["source_files"])
             roles = {item["role"] for item in handoff["canonical_artifacts"]}
             self.assertTrue({"results", "official_run", "computation_source", "compile_receipt", "editable_source", "approved_pdf"}.issubset(roles))
 
@@ -476,7 +482,7 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertIn("problem/official/problem.txt", source_paths)
             self.assertIn("results/RESULTS_INDEX.json", source_paths)
             self.assertIn("runs/RUN-Q1-001/RUN_MANIFEST.json", source_paths)
-            self.assertIn("code/solve.py", source_paths)
+            self.assertIn("runs/RUN-Q1-001/source/code/solve.py", source_paths)
             self.assertIn("runs/RUN-Q1-001/outputs/result.json", source_paths)
             self.assertNotIn("runs/RUN-Q1-001/stdout.log", source_paths)
             self.assertNotIn("runs/RUN-Q1-001/stderr.log", source_paths)
@@ -498,13 +504,26 @@ class ModesAndReviewTests(unittest.TestCase):
             self.assertTrue({"official_run", "computation_source", "claim_bearing_output"}.issubset(computation_roles))
             self.assertNotIn("run_log", computation_roles)
 
-    def test_official_run_is_bound_to_executed_source_version(self):
+    def test_working_tree_drifting_from_the_official_run_is_caught(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             build_valid_project(root)
             (root / "code" / "solve.py").write_text("print('stale')\n", encoding="utf-8")
             findings, _ = check_project(root, "computation")
-            self.assertIn("RUN-E020", {item.rule_id for item in findings})
+            drift = [item for item in findings if item.rule_id == "RUN-E020"]
+            self.assertTrue(drift)
+            self.assertIn("code/solve.py", drift[0].message)
+            self.assertIn("--rerun", drift[0].remediation)
+
+    def test_tampering_with_the_frozen_evidence_is_a_different_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            build_valid_project(root)
+            (root / "runs/RUN-Q1-001/source/code/solve.py").write_text("print('forged')\n", encoding="utf-8")
+            findings, _ = check_project(root, "computation")
+            rules = {item.rule_id for item in findings}
+            self.assertIn("RUN-E021", rules)
+            self.assertNotIn("RUN-E020", rules)
 
     def test_review_package_detects_upstream_change(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -515,7 +534,7 @@ class ModesAndReviewTests(unittest.TestCase):
             (root / "validation" / "INDEPENDENT_REVIEW_RAW.md").unlink()
             (root / "model" / "VALIDATION_PLAN.md").write_text("# Validation plan\n", encoding="utf-8")
             build_review_package(root)
-            (root / "code" / "solve.py").write_text("print('changed upstream')\n", encoding="utf-8")
+            (root / "runs/RUN-Q1-001/source/code/solve.py").write_text("print('changed upstream')\n", encoding="utf-8")
             findings, _ = check_project(root, "validation")
             self.assertIn("IREVIEW-E025", {item.rule_id for item in findings})
 

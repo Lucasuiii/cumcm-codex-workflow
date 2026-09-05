@@ -38,6 +38,14 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def live_path_of(frozen: str) -> str | None:
+    """runs/<id>/source/code/solve.py -> code/solve.py (None if not a frozen path)."""
+    parts = frozen.split("/")
+    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs"}:
+        return "/".join(parts[3:])
+    return None
+
+
 def build_plan(root: Path, changed: list[str]) -> dict[str, Any]:
     root = root.resolve()
     changed_set = {path.strip() for path in changed if path.strip()}
@@ -72,22 +80,38 @@ def build_plan(root: Path, changed: list[str]) -> dict[str, Any]:
     # --- runs whose recorded source tree or formal inputs moved -----------
     stale_runs: set[str] = set()
     official_runs: dict[str, dict[str, Any]] = {}
+    manifests: list[dict[str, Any]] = []
     for manifest_path in sorted((root / "runs").glob("*/RUN_MANIFEST.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(manifest, dict) or manifest.get("official_run") is not True:
+        if isinstance(manifest, dict):
+            manifests.append(manifest)
+    # A superseded run is history. Never propose re-running it.
+    superseded = {
+        str(m.get("parent_run_id")) for m in manifests
+        if str(m.get("parent_run_id", "")).strip() and str(m.get("parent_run_id")) != str(m.get("run_id"))
+    }
+    for manifest in manifests:
+        if manifest.get("official_run") is not True or str(manifest.get("run_id")) in superseded:
             continue
         run_id = str(manifest.get("run_id"))
         official_runs[run_id] = manifest
         snapshot = manifest.get("implementation", {}).get("source_snapshot", {})
-        watched = {str(value) for value in as_list(snapshot.get("files"))}
+        # Source is frozen inside the run directory, so watch the live counterpart:
+        # runs/<id>/source/code/solve.py is evidence for code/solve.py.
+        watched = set()
+        for value in as_list(snapshot.get("files")):
+            watched.add(str(value))
+            live = live_path_of(str(value))
+            if live:
+                watched.add(live)
         watched |= {str(entry.get("path")) for entry in as_list(manifest.get("inputs")) if isinstance(entry, dict) and entry.get("evidence_role") == "formal_input"}
         if watched & changed_set:
             stale_runs.add(run_id)
     for run_id in sorted(stale_runs):
-        actions["computation"].append(f"re-run {run_id}: record_run.py --rerun {run_id} --official")
+        actions["computation"].append(f"re-run {run_id}: record_run.py --rerun {run_id} --official (appends a successor)")
     for run_id in sorted(set(official_runs) - stale_runs):
         unaffected["computation"].append(run_id)
 
@@ -98,7 +122,9 @@ def build_plan(root: Path, changed: list[str]) -> dict[str, Any]:
         if isinstance(item, dict) and str(item.get("run_id")) in stale_runs
     }
     if stale_results:
-        actions["computation"].append(f"re-index results after the rerun: {', '.join(sorted(stale_results))}")
+        actions["computation"].append(
+            f"re-point results to the successor: index_result.py --follow-lineage ({', '.join(sorted(stale_results))})"
+        )
 
     stale_claims: set[str] = set()
     for claim in as_list(claims.get("claims")):

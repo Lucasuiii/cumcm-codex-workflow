@@ -89,12 +89,16 @@ python3 scripts/index_result.py --project <p> --result-id RES-Q1-001 \
   --run RUN-Q1-001 --locator results/q1.json#/minimum_cost \
   --name "Minimum cost" --unit CNY --scope "declared candidates only"
 
-# after editing the code, one command re-executes and re-binds
+# a rerun appends a successor; the parent and its evidence stay untouched
 python3 scripts/record_run.py --project <p> --rerun RUN-Q1-001 --official
-python3 scripts/index_result.py --project <p> --refresh
+python3 scripts/index_result.py --project <p> --follow-lineage
 ```
 
 Exploratory runs are recorded, never trusted, and never block: a failed assertion or a non-zero exit inside one is a fact about the experiment, not about the formal chain. Only a successful `official_run: true` run may support a formal result.
+
+Runs are append-only. `--rerun` appends `RUN-Q1-002` with `parent_run_id: RUN-Q1-001`; it never overwrites, because the parent is the only record of what the superseded run executed and produced. Each run freezes its declared source and outputs into `runs/<id>/source/…` and `runs/<id>/outputs/…`, mirroring the original layout, and hashes those copies — so a preserved run stays verifiable however the workspace changes, and `output_locator` names an immutable file.
+
+That does not weaken drift detection, it sharpens it. `RUN-E020` now compares the frozen copy with the live file and says the working tree has moved on from the run backing your results; superseded runs are exempt, and altering a frozen copy is `RUN-E021`. Supersession is derived from the parent chain and never written back — stamping the old manifest would change its hash and stale every decision bound to it. `RESULT-E017` catches a result still citing a superseded run; `index_result.py --follow-lineage` re-points it, explicitly, because which run backs a claim is judgement rather than a machine fact.
 
 ## Choosing one backend
 

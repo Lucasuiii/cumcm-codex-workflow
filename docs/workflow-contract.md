@@ -22,6 +22,19 @@
 
 Warning 和 suggestion 会进入报告，但不改变通过状态。
 
+## 运行与继任语义
+
+| 规则 | 含义 |
+|---|---|
+| `RUN-E020` | 活文件与该 official run 的冻结源码不同（被取代的运行豁免） |
+| `RUN-E021` | 冻结证据本身缺失或被改动 |
+| `RESULT-E017` | 正式结果仍引用被后续运行取代的运行 |
+| `RUN-E007`（inputs，被取代运行） | 降为 warning：input 就地取哈希，历史运行读过的数据可以合法地变了 |
+
+`--rerun` 追加而不覆盖；supersession 从 `parent_run_id` 链推导，不回写旧 manifest。重新指向结果必须用 `index_result.py --follow-lineage` 显式进行。
+
+被取代的运行仍然是 `official_run: true`——它当时确实是正式运行。它只是不再是当前结论的依据。
+
 ## 候选与选择语义
 
 `components[].candidates` 让"选了 A"成为可核对的链条而不是一句声明：

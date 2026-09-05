@@ -111,7 +111,8 @@ class RecorderTests(unittest.TestCase):
             self.assertEqual(manifest["exit_code"], 0)
             self.assertEqual(manifest["implementation"]["selected_language"], "python")
             # nothing was typed by hand: the snapshot and the log paths were observed
-            self.assertEqual(manifest["implementation"]["source_snapshot"]["files"], ["code/solve.py"])
+            self.assertEqual(manifest["implementation"]["source_snapshot"]["files"], ["runs/RUN-001/source/code/solve.py"])
+            self.assertTrue((project / "runs/RUN-001/source/code/solve.py").is_file())
             self.assertTrue((project / manifest["stdout_path"]).is_file())
 
     def test_failing_exploratory_run_is_recorded_without_blocking_the_formal_chain(self):
@@ -165,27 +166,56 @@ class RecorderTests(unittest.TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("not a successful official run", rejected.stderr)
 
-    def test_rerun_refreshes_the_snapshot_after_a_code_change(self):
+    def test_a_rerun_appends_and_leaves_the_superseded_run_intact(self):
         with tempfile.TemporaryDirectory() as temp:
             project = make_project(Path(temp))
             self.record_official(project)
-            before = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            first = project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json"
+            before_bytes = first.read_bytes()
+            before_stdout = (project / "runs" / "RUN-Q1-001" / "stdout.log").read_bytes()
+
             (project / "code" / "solve.py").write_text(SOLVER.replace("4.25", "0.5"), encoding="utf-8")
-            stale, _ = check_project(project, "computation")
-            self.assertIn("RUN-E020", {item.rule_id for item in stale})
-            plan = build_plan(project, ["code/solve.py"])
-            self.assertEqual(plan["stale_official_runs"], ["RUN-Q1-001"])
+            drift, _ = check_project(project, "computation")
+            self.assertIn("RUN-E020", {item.rule_id for item in drift})
+            self.assertEqual(build_plan(project, ["code/solve.py"])["stale_official_runs"], ["RUN-Q1-001"])
+
             completed = run_script("record_run.py", "--project", str(project), "--rerun", "RUN-Q1-001", "--official")
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
-            run_script("index_result.py", "--project", str(project), "--refresh")
-            after = json.loads((project / "runs" / "RUN-Q1-001" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
-            self.assertNotEqual(before["implementation"]["source_snapshot"]["digest"],
-                                after["implementation"]["source_snapshot"]["digest"])
-            self.assertEqual(after["capability_ids"], ["CAP-Q1-001"])
+
+            # the superseded run is byte-for-byte what it was, evidence included
+            self.assertEqual(first.read_bytes(), before_bytes)
+            self.assertEqual((project / "runs" / "RUN-Q1-001" / "stdout.log").read_bytes(), before_stdout)
+            self.assertIn("4.25", (project / "runs/RUN-Q1-001/source/code/solve.py").read_text(encoding="utf-8"))
+
+            second = json.loads((project / "runs" / "RUN-Q1-002" / "RUN_MANIFEST.json").read_text(encoding="utf-8"))
+            self.assertEqual(second["run_id"], "RUN-Q1-002")
+            self.assertEqual(second["parent_run_id"], "RUN-Q1-001")
+            self.assertEqual(second["capability_ids"], ["CAP-Q1-001"])
+            self.assertIn("0.5", (project / "runs/RUN-Q1-002/source/code/solve.py").read_text(encoding="utf-8"))
+
+            # the index still cites the superseded run, and that now blocks
+            stale, summary = check_project(project, "computation")
+            self.assertEqual(summary["superseded_run_ids"], ["RUN-Q1-001"])
+            self.assertIn("RESULT-E017", {item.rule_id for item in stale})
+
+            moved = run_script("index_result.py", "--project", str(project), "--follow-lineage")
+            self.assertEqual(moved.returncode, 0, moved.stdout + moved.stderr)
+            self.assertIn("RUN-Q1-001 -> RUN-Q1-002", moved.stdout)
+            index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
+            self.assertEqual(index["results"][0]["run_id"], "RUN-Q1-002")
+            self.assertEqual(index["results"][0]["value"], 0.5)
+
             findings, _ = check_project(project, "computation")
             self.assertEqual([item for item in findings if item.severity == "error"], [])
-            index = json.loads((project / "results" / "RESULTS_INDEX.json").read_text(encoding="utf-8"))
-            self.assertEqual(index["results"][0]["value"], 0.5)
+
+    def test_a_new_run_never_overwrites_an_existing_run_id(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = make_project(Path(temp))
+            self.record_official(project)
+            clash = run_script("record_run.py", "--project", str(project), "--run-id", "RUN-Q1-001",
+                               "--", sys.executable, "code/solve.py")
+            self.assertNotEqual(clash.returncode, 0)
+            self.assertIn("append-only", clash.stderr)
 
     def test_draft_model_passes_working_and_frozen_model_must_be_complete(self):
         with tempfile.TemporaryDirectory() as temp:

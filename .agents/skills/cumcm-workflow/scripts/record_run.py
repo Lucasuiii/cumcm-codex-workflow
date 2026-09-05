@@ -5,6 +5,11 @@ The agent declares meaning on the command line (purpose, capabilities, which fil
 are formal inputs or claim-bearing outputs). Everything else -- argv, timings, exit
 status, logs, hashes, and the source-tree snapshot -- is observed, never typed.
 
+A rerun never overwrites: it appends a new run whose `parent_run_id` points at
+the one it replaces, and the declared source and outputs are frozen into the run
+directory so a preserved run stays verifiable no matter what the workspace does
+next.
+
 Exploratory runs are deliberately cheap:
 
     record_run.py --project P -- python3 code/try.py
@@ -23,6 +28,8 @@ import json
 import mimetypes
 import os
 import platform
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -117,6 +124,49 @@ def parse_assertions(entries: list[str], assertion_file: str | None, root: Path)
     return assertions
 
 
+def freeze(root: Path, run_dir: Path, rel: str, kind: str) -> str:
+    """Copy an artifact into the run directory and return its frozen path.
+
+    The frozen tree mirrors the original layout (runs/<id>/source/code/solve.py),
+    so the live counterpart of any frozen file is just the path with the
+    runs/<id>/<kind>/ prefix removed. That keeps drift detection possible without
+    storing a second mapping.
+    """
+    origin = root / rel
+    if not origin.is_file():
+        raise SystemExit(f"declared file does not exist after the run: {rel}")
+    destination = run_dir / kind / rel
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(origin, destination)
+    return destination.relative_to(root).as_posix()
+
+
+def live_path_of(frozen: str) -> str | None:
+    """Inverse of freeze(): runs/<id>/source/code/solve.py -> code/solve.py."""
+    parts = frozen.split("/")
+    if len(parts) > 3 and parts[0] == "runs" and parts[2] in {"source", "outputs"}:
+        return "/".join(parts[3:])
+    return None
+
+
+def child_run_id(root: Path, parent: str) -> str:
+    """RUN-Q1-001 -> RUN-Q1-002, keeping whatever prefix the parent used."""
+    existing = {path.parent.name for path in (root / "runs").glob("*/RUN_MANIFEST.json")}
+    match = re.match(r"^(.*?)(\d+)$", parent)
+    if match:
+        head, number = match.group(1), int(match.group(2))
+        width = len(match.group(2))
+        while True:
+            number += 1
+            candidate = f"{head}{number:0{width}d}"
+            if candidate not in existing:
+                return candidate
+    index = 2
+    while f"{parent}-R{index}" in existing:
+        index += 1
+    return f"{parent}-R{index}"
+
+
 def load_previous(root: Path, run_id: str) -> dict[str, Any]:
     path = root / "runs" / run_id / "RUN_MANIFEST.json"
     if not path.is_file():
@@ -136,7 +186,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run a command and record its evidence; the agent never types a hash")
     parser.add_argument("--project", required=True, type=Path)
     parser.add_argument("--run-id")
-    parser.add_argument("--rerun", help="re-execute an existing run's exact argv and overwrite its manifest")
+    parser.add_argument("--rerun", help="re-execute an existing run's exact argv as a new, appended run")
     parser.add_argument("--purpose")
     parser.add_argument("--capability", action="append", default=[])
     parser.add_argument("--candidate", action="append", default=[], help="model candidate this run evaluates; repeat as needed")
@@ -163,7 +213,11 @@ def main() -> int:
     run_id = args.run_id
     if args.rerun:
         previous = load_previous(root, args.rerun)
-        run_id = run_id or args.rerun
+        # A rerun appends. Overwriting the parent would destroy the only record of
+        # what the superseded run executed and produced.
+        run_id = run_id or child_run_id(root, args.rerun)
+        if run_id == args.rerun:
+            parser.error("a rerun must use a new run id; it never overwrites its parent")
         command = command or [str(token) for token in previous.get("argv", [])]
     if not command:
         parser.error("provide the command to execute after --")
@@ -174,22 +228,25 @@ def main() -> int:
     sources = [relative(root, value) for value in args.source]
     if not sources and previous:
         snapshot = previous.get("implementation", {}).get("source_snapshot", {})
-        sources = [str(value) for value in snapshot.get("files", [])]
+        sources = [live_path_of(str(value)) or str(value) for value in snapshot.get("files", [])]
     declared_inputs = args.input or [
         f"{item['path']}:{'formal' if item.get('evidence_role') == 'formal_input' else 'auxiliary'}"
         for item in previous.get("inputs", []) if isinstance(item, dict)
     ]
     declared_outputs = args.output or [
-        f"{item['path']}:{ {'claim_bearing_output': 'claim', 'intermediate_output': 'intermediate'}.get(item.get('evidence_role'), 'diagnostic') }"
+        f"{live_path_of(str(item['path'])) or item['path']}:"
+        f"{ {'claim_bearing_output': 'claim', 'intermediate_output': 'intermediate'}.get(item.get('evidence_role'), 'diagnostic') }"
         for item in previous.get("outputs", []) if isinstance(item, dict)
     ]
 
     language = infer_language(command, args.language or previous.get("implementation", {}).get("selected_language"))
     entry_point = infer_entry_point(root, command, sources)
-    if not sources:
-        sources = [entry_point]
+    if entry_point not in sources:
+        sources.append(entry_point)
 
     run_dir = root / "runs" / run_id
+    if (run_dir / "RUN_MANIFEST.json").is_file():
+        parser.error(f"run {run_id} already exists; runs are append-only, use --rerun {run_id}")
     run_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
@@ -214,10 +271,18 @@ def main() -> int:
     if official and not capabilities:
         parser.error("an official run must name at least one --capability")
 
+    # Inputs are hashed where they live: official material is immutable by intake
+    # contract, and a changed team input is drift worth seeing.
     inputs = [file_record(root, relative(root, spec.split(":", 1)[0]), role)
               for spec, role in ((s, split_role(s, INPUT_ROLES, "auxiliary_input")[1]) for s in declared_inputs)]
-    outputs = [file_record(root, relative(root, spec.split(":", 1)[0]), role)
-               for spec, role in ((s, split_role(s, OUTPUT_ROLES, "diagnostic_output")[1]) for s in declared_outputs)]
+    # Source and outputs are frozen: a rerun would otherwise overwrite exactly the
+    # files this run's evidence points at.
+    frozen_sources = [freeze(root, run_dir, rel, "source") for rel in sources]
+    frozen_entry_point = freeze(root, run_dir, entry_point, "source")
+    outputs = [
+        file_record(root, freeze(root, run_dir, relative(root, spec.split(":", 1)[0]), "outputs"), role)
+        for spec, role in ((s, split_role(s, OUTPUT_ROLES, "diagnostic_output")[1]) for s in declared_outputs)
+    ]
     if not outputs:
         # Every run produces at least its own log; recording it keeps a zero-flag
         # exploratory run schema-valid without inventing a claim-bearing artifact.
@@ -245,12 +310,12 @@ def main() -> int:
         "implementation": {
             "selected_language": language,
             "selection_rationale": args.rationale or previous.get("implementation", {}).get("selection_rationale") or f"recorded by record_run.py from the executed {language} command",
-            "entry_point": entry_point,
+            "entry_point": frozen_entry_point,
             "runtime": runtime_label(language, command),
             "dependencies": args.dependency or [str(value) for value in previous.get("implementation", {}).get("dependencies", [])],
             "matlab_toolboxes": args.toolbox,
             "fallback_from": None,
-            "source_snapshot": tree_snapshot(root, sources, entrypoint=entry_point),
+            "source_snapshot": tree_snapshot(root, frozen_sources, entrypoint=frozen_entry_point),
         },
         "inputs": inputs,
         "outputs": outputs,
@@ -258,7 +323,7 @@ def main() -> int:
         "stdout_path": stdout_path.relative_to(root).as_posix(),
         "stderr_path": stderr_path.relative_to(root).as_posix(),
         "assertions": parse_assertions(args.assertions, args.assert_file, root) or previous.get("assertions", []),
-        "parent_run_id": args.rerun,
+        "parent_run_id": args.rerun or None,
     }
     destination = run_dir / "RUN_MANIFEST.json"
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=run_dir, delete=False) as stream:
@@ -269,6 +334,11 @@ def main() -> int:
 
     grade = "official" if official else "exploratory"
     print(f"recorded {grade} run {run_id} (exit {exit_code}) -> {destination.relative_to(root)}")
+    if args.rerun:
+        print(f"appended after {args.rerun}; that run and its evidence are untouched")
+    for entry in outputs:
+        if entry["evidence_role"] == "claim_bearing_output":
+            print(f"claim-bearing output frozen at {entry['path']}")
     if candidates:
         print(f"evaluated candidate(s): {', '.join(candidates)} -- cite this run in the candidate's evaluation_run_ids")
     if not official:

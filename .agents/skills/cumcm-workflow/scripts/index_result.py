@@ -52,6 +52,45 @@ def resolve_pointer(data: Any, pointer: str) -> Any:
     return current
 
 
+def all_runs(root: Path) -> dict[str, dict[str, Any]]:
+    runs: dict[str, dict[str, Any]] = {}
+    for manifest_path in sorted((root / "runs").glob("*/RUN_MANIFEST.json")):
+        manifest = read_object(manifest_path)
+        run_id = str(manifest.get("run_id", "")).strip()
+        if run_id:
+            runs[run_id] = manifest
+    return runs
+
+
+def newest_descendant(runs: dict[str, dict[str, Any]], run_id: str) -> str:
+    """Walk parent_run_id links forward to the run that replaced this one."""
+    children = {
+        str(manifest.get("parent_run_id")): rid
+        for rid, manifest in runs.items()
+        if str(manifest.get("parent_run_id", "")).strip() and str(manifest.get("parent_run_id")) != rid
+    }
+    seen = {run_id}
+    current = run_id
+    while current in children:
+        current = children[current]
+        if current in seen:
+            break
+        seen.add(current)
+    return current
+
+
+def frozen_locator(manifest: dict[str, Any], run_id: str, locator: str) -> str:
+    """Accept the path the program writes to and store the immutable frozen copy."""
+    rel, _, pointer = locator.partition("#")
+    roles = {str(entry.get("path")): entry.get("evidence_role") for entry in manifest.get("outputs", []) if isinstance(entry, dict)}
+    if roles.get(rel) == "claim_bearing_output":
+        return locator
+    candidate = f"runs/{run_id}/outputs/{rel}"
+    if roles.get(candidate) == "claim_bearing_output":
+        return f"{candidate}#{pointer}"
+    return locator
+
+
 def find_run(root: Path, run_id: str) -> dict[str, Any]:
     for manifest_path in sorted((root / "runs").glob("*/RUN_MANIFEST.json")):
         manifest = read_object(manifest_path)
@@ -85,6 +124,7 @@ def main() -> int:
     parser.add_argument("--supersedes")
     parser.add_argument("--remove", help="drop this result_id from the index")
     parser.add_argument("--refresh", action="store_true", help="re-resolve every indexed value from its locator")
+    parser.add_argument("--follow-lineage", action="store_true", help="re-point every result at the run that superseded the one it cites")
     args = parser.parse_args()
 
     root = args.project.resolve()
@@ -109,6 +149,28 @@ def main() -> int:
         if len(remaining) == len(results):
             parser.error(f"no such result: {args.remove}")
         results = remaining
+    elif args.follow_lineage:
+        runs = all_runs(root)
+        moved = 0
+        for item in results:
+            current = str(item.get("run_id", ""))
+            newest = newest_descendant(runs, current)
+            if newest == current:
+                continue
+            manifest = runs[newest]
+            locator = str(item.get("output_locator", ""))
+            live = locator.partition("#")[0]
+            for prefix in (f"runs/{current}/outputs/",):
+                if live.startswith(prefix):
+                    live = live[len(prefix):]
+            item["run_id"] = newest
+            item["output_locator"] = frozen_locator(manifest, newest, f"{live}#{locator.partition('#')[2]}")
+            rel, _, pointer = item["output_locator"].partition("#")
+            item["value"] = resolve_pointer(read_object(root / rel), pointer)
+            moved += 1
+            print(f"{item['result_id']}: {current} -> {newest}")
+        if not moved:
+            print("no indexed result cites a superseded run")
     elif args.refresh:
         for item in results:
             locator = str(item.get("output_locator", ""))
@@ -118,15 +180,19 @@ def main() -> int:
         for required in ("result_id", "run", "locator", "name", "scope"):
             if not getattr(args, required.replace("-", "_")):
                 parser.error(f"--{required.replace('_', '-')} is required when indexing a result")
-        rel, sep, pointer = args.locator.partition("#")
-        if not sep:
+        if "#" not in args.locator:
             parser.error("--locator must be path#/json-pointer")
         manifest = find_run(root, args.run)
         if manifest.get("official_run") is not True or manifest.get("exit_code") != 0 or manifest.get("status") != "completed":
             parser.error(f"{args.run} is not a successful official run; re-record it with record_run.py --official")
         roles = {str(entry.get("path")): entry.get("evidence_role") for entry in manifest.get("outputs", []) if isinstance(entry, dict)}
-        if roles.get(rel) != "claim_bearing_output":
-            parser.error(f"{rel} is not a claim-bearing output of {args.run}")
+        probe = frozen_locator(manifest, args.run, args.locator).partition("#")[0]
+        if roles.get(probe) != "claim_bearing_output":
+            parser.error(f"{args.locator.partition('#')[0]} is not a claim-bearing output of {args.run}")
+        locator = frozen_locator(manifest, args.run, args.locator)
+        rel, _, pointer = locator.partition("#")
+        if locator != args.locator:
+            print(f"locator points at the frozen copy: {locator}")
         value = resolve_pointer(read_object(root / rel), pointer)
         entry = {
             "result_id": args.result_id,
@@ -136,7 +202,7 @@ def main() -> int:
             "precision": args.precision,
             "display_rounding": args.display_rounding,
             "run_id": args.run,
-            "output_locator": args.locator,
+            "output_locator": locator,
             "scope": args.scope,
             "evidence_state": args.evidence_state,
             "validation_checks": args.check,

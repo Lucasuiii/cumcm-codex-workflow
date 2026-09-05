@@ -58,6 +58,11 @@ def build_valid_project(root: Path) -> None:
     code_path = root / "code" / "solve.py"
     code_path.parent.mkdir()
     code_path.write_text("print('synthetic')\n", encoding="utf-8")
+    # v0.6 freezes the executed source into the run directory; the live file stays
+    # where it is so the checker can spot the working tree drifting away from it.
+    frozen_code = root / "runs" / "RUN-Q1-001" / "source" / "code" / "solve.py"
+    frozen_code.parent.mkdir(parents=True)
+    frozen_code.write_text("print('synthetic')\n", encoding="utf-8")
 
     output = {"restricted_policy_cost": 12.5}
     output_bytes = (json.dumps(output) + "\n").encode()
@@ -220,12 +225,12 @@ def build_valid_project(root: Path) -> None:
             "implementation": {
                 "selected_language": "python",
                 "selection_rationale": "existing Python fixture is the simplest reliable implementation",
-                "entry_point": "code/solve.py",
+                "entry_point": "runs/RUN-Q1-001/source/code/solve.py",
                 "runtime": "Python 3 fixture",
                 "dependencies": [],
                 "matlab_toolboxes": [],
                 "fallback_from": None,
-                "source_snapshot": tree_snapshot(root, ["code/solve.py"]),
+                "source_snapshot": tree_snapshot(root, ["runs/RUN-Q1-001/source/code/solve.py"]),
             },
             "inputs": [
                 {

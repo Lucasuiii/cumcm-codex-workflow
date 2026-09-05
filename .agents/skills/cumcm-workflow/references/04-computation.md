@@ -29,8 +29,9 @@ python3 scripts/record_run.py --project <p> --official --capability CAP-Q1-001 \
   --source code/solve.py --input data/q1.csv:formal \
   --output results/q1.json:claim --assert "feasibility=pass" -- python3 code/solve.py
 
-# after a code change, one command re-executes and re-binds the snapshot
+# a rerun appends a successor (RUN-Q1-002) and leaves the parent untouched
 python3 scripts/record_run.py --project <p> --rerun RUN-Q1-001 --official
+python3 scripts/index_result.py --project <p> --follow-lineage
 ```
 
 Then index the result; the value is read through the locator, so the index can never disagree with the output:
@@ -50,6 +51,24 @@ python3 scripts/record_run.py --project <p> --candidate CAND-A -- python3 code/t
 ```
 
 That run then counts as evidence for or against `CAND-A` in `MODEL_CONTRACT.components[].candidates`. Only after one candidate is `selected` does that model earn an official run; see [03-model-design.md](03-model-design.md).
+
+## Append-only runs and frozen evidence
+
+A rerun never overwrites. It appends a run whose `parent_run_id` names the one it replaces, and every run copies its declared source and outputs into its own directory:
+
+```text
+runs/RUN-Q1-002/
+├── RUN_MANIFEST.json
+├── stdout.log  stderr.log
+├── source/code/solve.py        # the code as executed
+└── outputs/results/q1.json     # the output as produced; the locator points here
+```
+
+The frozen tree mirrors the original relative paths, so the live counterpart of `runs/<id>/source/code/solve.py` is `code/solve.py`. That mapping is what keeps drift detection alive: `RUN-E020` compares the two and reports that the working tree has moved on from this official run. A superseded run is exempt; altering a frozen copy is `RUN-E021`.
+
+Formal inputs are hashed where they live rather than copied — official material is immutable by intake contract, and large attachments should not be duplicated per run. A superseded run whose input has since changed reports a warning, not an error.
+
+Never edit a run directory by hand, and never re-point a result at a different run silently: `index_result.py --follow-lineage` exists so that choosing the run behind a claim stays a deliberate act.
 
 ## Official run evidence
 
